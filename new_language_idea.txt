@@ -1,0 +1,178 @@
+foo := 5, true, 'a'
+foo |a, b, c| {
+    std.io.printf("{}, {}, {}", [a, b, c])
+}
+
+bar := foo -> |a, _, _| a -> #(*2) -> #(1-)
+baz := ("hi", foo, ()) -> |x, (a, b, c), y| (x.len % a, b, c)
+
+true -> |true| "true" -> print()
+match true {
+    true => print("true")
+    _ => {}
+}
+
+false -> |true| "false" -> print()
+match false {
+    true => print("false")
+    _ => {}
+}
+
+true -> |false| "false" -> print()
+match true {
+    false => print("false")
+    _ => {}
+}
+
+false -> |false| "true" -> print()
+match false {
+    false => print("true")
+    _ => {}
+}
+
+|true| "true" -> print()
+if true {
+    print("true")
+}
+
+|false| "false" -> print()
+if false {
+    print("false")
+}
+
+true -> then print("true")
+
+foo -> match {
+    foo -> |5, _, _| "five"
+    foo -> |_, true, _| "true"
+    foo -> |_, false, _| "false"
+    foo -> |_, _, c| when (c % 2 == 0) c
+    foo -> |_, _, c| |.c % 2 == 0| c
+    match foo {
+        (_, _, c) => if c % 2 == 0 {
+            c
+        }
+    }
+    foo -> |_, _, c| c -> match {
+        |'a'| "A"
+        |'b'| "B"
+        |c| c - 5
+    }
+} -> std.io.printf()
+
+r, w := Channel(int).new() -> |c| {
+    r := c.create_reader()
+    w := c.create_writer()
+    r, w
+}
+
+go :: proc(data: $T, body: proc(T) void) void {
+
+}
+
+go(r) |reader| loop {
+    reader.read() -> match {
+        |Some(d)| printf("received {}", [d])
+        |None| {
+            print("channel closed")
+            break
+        }
+    }
+}
+
+1..=10 -> for |v, i| {
+    printf("sending {}", [i])
+    w.write(v)
+}
+
+w.close()
+
+loop |i| {
+    random.int() % 2 == 0 -> then { i -> break } else print("odd...")
+} -> print()
+
+print(loop |i| {
+    random.int() % 2 == 0 -> then { i -> break } else print("odd...")
+})
+
+0..10 -> :outer for |y| {
+    0..10 -> for |x| {
+        x + y == 5 -> then {
+            break :outer
+        } else x - y == 2 -> then {
+            break
+        } else {
+            continue
+        }
+
+        print("lol")
+    }
+}
+
+Vec :: struct(T: type) {
+    pub x, y, z : T
+
+    pub add :: fn(Self, a: Self) Self {
+        return (x + a.x, y + a.y, z + a.z)
+    }
+}
+
+impl(T: type) Add(Vec(T)) for Vec(T) {
+    use Vec(T).add
+}
+
+Soa :: struct(T: struct) {
+    @insert() T.members -> for |m| {
+        // skip members with no_soa = true
+        @try_get(m.meta.no_soa) -> |Some(v)| v -> then continue
+        @try_get(m.meta.no_soa) -> match {
+            |Some(v)| v -> then continue
+            |Some(v)| |v| continue
+            |_| ()
+        }
+
+        // emit array of m.type, also copy metadata and pub modifier
+        yield @meta(...m.meta, generated = true) @pub(m.public) @id(m.name) : Array(m.type)
+    }
+
+    get :: fn(@mut($M) &Self, $member: string, index: usize) @mut(M) &T {
+        return &self.@id(member)[index]
+    }
+}
+
+    soa1 : Soa(Vec(f64)) = ([1, 4], [2, 5], [3, 6])
+mut soa2 : Soa(Vec(f64)) = ([1, 4], [2, 5], [3, 6])
+
+x1 : &f64     = soa1.get("x", 0)
+x2 : &mut f64 = soa2.get("x", 0)
+x3 : &f64     = soa2.get("x", 0)
+
+SoaVectors :: Soa(Vec(f64))
+
+SoaVectors :: Soa(struct{x, y, z : f64})
+
+SoaVectors :: Soa() struct {
+    @meta(version = "1.0.0") pub x : f64
+    @meta(version = "1.0.0") pub y : f64
+    @meta(version = "1.0.0") pub z : f64
+    @meta(version = "1.0.0", no_soa=true) pub len : f64
+}
+
+SoaVectors :: struct {
+    @meta(version = "1.0.0", generated=true) x : Array(f64)
+    @meta(version = "1.0.0", generated=true) y : Array(f64)
+    @meta(version = "1.0.0", generated=true) z : Array(f64)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
