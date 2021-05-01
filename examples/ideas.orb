@@ -1,4 +1,4 @@
-foo := 5, true, 'a'
+foo := 123, 0x59fa0, 0b0110011001
 foo |a, b, c| {
     std.io.printf("{}, {}, {}", [a, b, c])
 }
@@ -117,8 +117,12 @@ Vec :: struct(T: type) {
     }
 }
 
-impl(T: type) Add(Vec(T)) for Vec(T) {
+Vec -> impl |T| Add(Vec(T)) {
     use Vec(T).add
+}
+
+Vec -> for |Vec| {
+    @log("Instance of Vec(T): " .. Vec .. "(" .. Vec.T .. ")")
 }
 
 Soa :: struct(T: struct) {

@@ -1,25 +1,8 @@
 const std = @import("std");
 
 usingnamespace @import("lexer.zig");
-
-const Name = []const u8;
-
-const AstSpec = union(enum) {
-    Identifier: struct {
-        name: Name,
-    },
-    Number: struct {
-        value: i64,
-    },
-    Call: struct {
-        func: *Ast,
-        args: std.ArrayList(*Ast),
-    },
-};
-
-const Ast = struct {
-    spec: AstSpec,
-};
+usingnamespace @import("parser.zig");
+usingnamespace @import("error_handler.zig");
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -27,7 +10,7 @@ pub fn main() anyerror!void {
     var allocator = &gpa.allocator;
 
     const examples = try std.fs.cwd().openDir("examples", .{});
-    const fileContent = try examples.readFileAlloc(allocator, "ideas.orb", std.math.maxInt(usize));
+    const fileContent = try examples.readFileAlloc(allocator, "test.orb", std.math.maxInt(usize));
     defer allocator.free(fileContent);
 
     var lexer = try Lexer.init(fileContent);
@@ -49,5 +32,15 @@ pub fn main() anyerror!void {
                 std.log.info("{any}", .{token});
             },
         }
+    }
+    std.debug.print("\n", .{});
+
+    lexer = try Lexer.init(fileContent);
+    var errorReporter = ConsoleErrorReporter{};
+    var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
+    defer parser.deinit();
+
+    while (parser.parseExpression()) |expr| {
+        std.log.info("{any}", .{expr});
     }
 }

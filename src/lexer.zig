@@ -1,5 +1,7 @@
 const std = @import("std");
 
+usingnamespace @import("location.zig");
+
 pub const TokenKind = union(enum) {
     Unknown,
     Colon,
@@ -55,6 +57,7 @@ pub const TokenKind = union(enum) {
 };
 
 pub const Token = struct {
+    location: Location,
     kind: TokenKind,
 
     const Self = @This();
@@ -62,8 +65,8 @@ pub const Token = struct {
 
 pub const Lexer = struct {
     input: []const u8,
-    index: usize,
     peeked: ?Token,
+    location: Location,
 
     const Self = @This();
 
@@ -73,13 +76,13 @@ pub const Lexer = struct {
         }
         return Lexer{
             .input = input,
-            .index = 0,
             .peeked = null,
+            .location = .{ .index = 0, .line = 1, .column = 1 },
         };
     }
 
     fn peekChar(self: *Self, offset: usize) ?u8 {
-        const i = self.index + offset;
+        const i = self.location.index + offset;
         if (i >= self.input.len) {
             return null;
         } else {
@@ -88,11 +91,11 @@ pub const Lexer = struct {
     }
 
     fn readChar(self: *Self) ?u8 {
-        if (self.index >= self.input.len) {
+        if (self.location.index >= self.input.len) {
             return null;
         } else {
-            defer self.index += 1;
-            return self.input[self.index];
+            defer self.nextChar();
+            return self.input[self.location.index];
         }
     }
 
@@ -111,18 +114,27 @@ pub const Lexer = struct {
         return self.parseNextToken();
     }
 
+    fn nextChar(self: *Self) void {
+        if (self.location.index < self.input.len and self.input[self.location.index] == '\n') {
+            self.location.line += 1;
+            self.location.column = 0;
+        }
+        self.location.index += 1;
+        self.location.column += 1;
+    }
+
     fn parseNextToken(self: *Self) ?Token {
         // skip whitespace and comments
-        while (self.index < self.input.len) {
-            switch (self.input[self.index]) {
-                ' ' => self.index += 1,
-                '\t' => self.index += 1,
-                '\r' => self.index += 1,
-                '\n' => self.index += 1,
+        while (self.location.index < self.input.len) {
+            switch (self.input[self.location.index]) {
+                ' ' => self.nextChar(),
+                '\t' => self.nextChar(),
+                '\r' => self.nextChar(),
+                '\n' => self.nextChar(),
                 '#' => {
-                    while (self.index < self.input.len) {
-                        self.index += 1;
-                        if (self.input[self.index - 1] == '\n') {
+                    while (self.location.index < self.input.len) {
+                        self.nextChar();
+                        if (self.input[self.location.index - 1] == '\n') {
                             break;
                         }
                     }
@@ -131,11 +143,14 @@ pub const Lexer = struct {
             }
         }
 
-        if (self.index >= self.input.len) {
+        if (self.location.index >= self.input.len) {
             return null;
         }
 
-        var token = Token{ .kind = .Unknown };
+        var token = Token{
+            .location = self.location,
+            .kind = .Unknown,
+        };
 
         switch (self.readChar().?) {
             ':' => token.kind = .Colon,
@@ -145,20 +160,22 @@ pub const Lexer = struct {
                     if (self.peekChar(1)) |c2| {
                         switch (c2) {
                             '.' => {
-                                self.index += 2;
+                                self.nextChar();
+                                self.nextChar();
                                 token.kind = .Spread;
                             },
                             '=' => {
-                                self.index += 2;
+                                self.nextChar();
+                                self.nextChar();
                                 token.kind = .RangeInclusive;
                             },
                             else => {
-                                self.index += 1;
+                                self.nextChar();
                                 token.kind = .Range;
                             },
                         }
                     } else {
-                        self.index += 1;
+                        self.nextChar();
                         token.kind = .Range;
                     }
                 } else {
@@ -171,7 +188,7 @@ pub const Lexer = struct {
             '&' => token.kind = .Ampersand,
             '+' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .PlusEqual;
                 } else {
                     token.kind = .Plus;
@@ -181,10 +198,10 @@ pub const Lexer = struct {
             },
             '-' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .MinusEqual;
                 } else if (c1 == '>') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .Arrow;
                 } else {
                     token.kind = .Minus;
@@ -194,7 +211,7 @@ pub const Lexer = struct {
             },
             '*' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .AsteriskEqual;
                 } else {
                     token.kind = .Asterisk;
@@ -204,7 +221,7 @@ pub const Lexer = struct {
             },
             '/' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .SlashEqual;
                 } else {
                     token.kind = .Slash;
@@ -214,7 +231,7 @@ pub const Lexer = struct {
             },
             '%' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .PercentEqual;
                 } else {
                     token.kind = .Percent;
@@ -230,7 +247,7 @@ pub const Lexer = struct {
             ']' => token.kind = .BracketRight,
             '>' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .GreaterEqual;
                 } else {
                     token.kind = .Greater;
@@ -240,7 +257,7 @@ pub const Lexer = struct {
             },
             '<' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .LessEqual;
                 } else {
                     token.kind = .Less;
@@ -250,7 +267,7 @@ pub const Lexer = struct {
             },
             '=' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .EqualEqual;
                 } else {
                     token.kind = .Equal;
@@ -260,7 +277,7 @@ pub const Lexer = struct {
             },
             '!' => if (self.peekChar(0)) |c1| {
                 if (c1 == '=') {
-                    self.index += 1;
+                    self.nextChar();
                     token.kind = .NotEqual;
                 } else {
                     token.kind = .Bang;
@@ -296,25 +313,71 @@ pub const Lexer = struct {
                 token.kind = .Unknown;
 
                 if (isValidFirstIdentifierChar(c)) {
-                    const start = self.index - 1; // index pointing to second char
-                    while (self.index < self.input.len and isValidIdentifierChar(self.input[self.index])) {
-                        self.index += 1;
+                    const start = self.location.index - 1; // index pointing to second char
+                    while (self.location.index < self.input.len and isValidIdentifierChar(self.input[self.location.index])) {
+                        self.nextChar();
                     }
-                    token.kind = TokenKind{ .Identifier = self.input[start..self.index] };
-                } else {}
+                    token.kind = TokenKind{ .Identifier = self.input[start..self.location.index] };
+                } else if (c >= '0' and c <= '9') {
+                    self.location.index -= 1;
+                    if (self.parseNumber()) |num| {
+                        token.kind = num;
+                    }
+                }
             },
         }
 
         return token;
     }
 
+    fn parseNumber(self: *Self) ?TokenKind {
+        var radix: u8 = 10;
+        const startRaw = self.location.index;
+
+        if (self.location.index + 1 < self.input.len and
+            self.input[self.location.index] == '0')
+        {
+            switch (self.input[self.location.index + 1]) {
+                'x' => {
+                    radix = 16;
+                    self.nextChar();
+                    self.nextChar();
+                },
+                'b' => {
+                    radix = 2;
+                    self.nextChar();
+                    self.nextChar();
+                },
+                else => {},
+            }
+        }
+
+        const start = self.location.index;
+        while (self.location.index < self.input.len and isDigit(self.input[self.location.index], radix)) {
+            self.nextChar();
+        }
+        const end = self.location.index;
+
+        // check if empty
+        if (start == end) {
+            std.log.err("Failed to parse int literal: '{s}'", .{self.input[startRaw..end]});
+            return null;
+        }
+
+        const number = std.fmt.parseInt(u128, self.input[start..end], radix) catch {
+            std.log.err("Failed to parse int literal: '{s}'", .{self.input[startRaw..end]});
+            return null;
+        };
+        return TokenKind{ .IntLiteral = number };
+    }
+
     fn parseString(self: *Self, end: u8) ?[]const u8 {
-        // self.index already points to first byte of content
-        const start = self.index;
-        while (self.index < self.input.len) : (self.index += 1) {
-            if (self.input[self.index] == end) {
-                self.index += 1;
-                return self.input[start..(self.index - 1)];
+        // self.location.index already points to first byte of content
+        const start = self.location.index;
+        while (self.location.index < self.input.len) : (self.nextChar()) {
+            if (self.input[self.location.index] == end) {
+                self.nextChar();
+                return self.input[start..(self.location.index - 1)];
             }
         }
         return null;
@@ -327,4 +390,12 @@ fn isValidFirstIdentifierChar(c: u8) bool {
 
 fn isValidIdentifierChar(c: u8) bool {
     return c == '_' or (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9');
+}
+
+fn isDigit(c: u8, radix: u8) bool {
+    if (radix <= 10) {
+        return c >= '0' and c < ('0' + radix);
+    } else {
+        return (c >= '0' and c <= '9') or (c >= 'a' and c < ('a' + radix - 10)) or (c >= 'A' and c < ('A' + radix - 10));
+    }
 }
