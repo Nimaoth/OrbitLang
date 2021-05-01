@@ -1,9 +1,9 @@
 foo := 123, 0x59fa0, 0b0110011001
-foo |a, b, c| {
+foo -> |a, b, c| {
     std.io.printf("{}, {}, {}", [a, b, c])
 }
 
-bar := foo -> |a, _, _| a -> #(*2) -> #(1-)
+bar := foo -> |a, _, _| a -> #(-2) -> #(1-)
 baz := ("hi", foo, ()) -> |x, (a, b, c), y| (x.len % a, b, c)
 
 true -> |true| "true" -> print()
@@ -40,37 +40,42 @@ if false {
     print("false")
 }
 
-true -> then print("true")
+true -> then print("true") else print("false")
 
 foo -> match {
-    foo -> |5, _, _| "five"
-    foo -> |_, true, _| "true"
-    foo -> |_, false, _| "false"
-    foo -> |_, _, c| when (c % 2 == 0) c
-    foo -> |_, _, c| |.c % 2 == 0| c
-    match foo {
-        (_, _, c) => if c % 2 == 0 {
-            c
-        }
-    }
-    foo -> |_, _, c| c -> match {
+    |5, _, _| "five"
+    |_, true, _| "true"
+    |_, false, _| "false"
+    |_, _, c| when (c % 2 == 0) c
+    |_, _, c| |c % 2 == 0| c
+    |_, _, c| (c % 2 == 0 -> then c)
+    |_, _, c| c % 2 == 0 -> then c
+
+    |_, _, c| c -> match {
         |'a'| "A"
         |'b'| "B"
         |c| c - 5
     }
-} -> std.io.printf()
+} -> print()
 
-r, w := Channel(int).new() -> |c| {
+c, r, w := Channel(int).new() -> |c| {
     r := c.create_reader()
     w := c.create_writer()
-    r, w
+    c, r, w
+}
+defer w.close()
+
+go :: fn(data: $T, body: fn(T) void) void {
+    # in a separate thread:
+    body(data)
 }
 
-go :: proc(data: $T, body: proc(T) void) void {
+foo(1, 2)
+foo(1) 2
 
-}
+|a| a + 1
 
-go(r) |reader| loop {
+go2(r) |reader| loop {
     reader.read() -> match {
         |Some(d)| printf("received {}", [d])
         |None| {
@@ -84,8 +89,8 @@ go(r) |reader| loop {
     printf("sending {}", [i])
     w.write(v)
 }
+5 |> (+1) ||
 
-w.close()
 
 loop |i| {
     random.int() % 2 == 0 -> then { i -> break } else print("odd...")
@@ -125,6 +130,20 @@ Vec -> for |Vec| {
     @log("Instance of Vec(T): " .. Vec .. "(" .. Vec.T .. ")")
 }
 
+SoaMemberRef :: struct(T: struct, Mut: bool) {
+    @insert() T.members -> for |m| {
+        yield @meta(...m.meta) @pub(m.public) @id(m.name) : @mut(Mut) &m.type
+    }
+
+    pub take :: fn(&Self) T {
+        return T(
+            @insert() T.members -> for |m| {
+                yield .@id(m.name) = self.@id(m.name).*
+            }
+        )
+    }
+}
+
 Soa :: struct(T: struct) {
     @insert() T.members -> for |m| {
         # skip members with no_soa = true
@@ -139,8 +158,17 @@ Soa :: struct(T: struct) {
         yield @meta(...m.meta, generated = true) @pub(m.public) @id(m.name) : Array(m.type)
     }
 
-    get :: fn(@mut($M) &Self, $member: string, index: usize) @mut(M) &T {
+   #pub get :: fn(@mut($M) &Self, $member: string, index: usize) @mut(M) &T {
+    pub get :: fn(&mut? Self, $member: string, index: usize) @mut(@typeof(self).mutable) &T {
         return &self.@id(member)[index]
+    }
+
+    pub ref :: fn(&mut? Self, index: usize) SoaMemberRef(T, @typeof(self).mutable) {
+        return (
+            @insert() T.members -> for |m| {
+                yield .@id(m.name) = @mut(@typeof(self).mutable) &self.@id(m.name)
+            }
+        )
     }
 }
 
@@ -150,6 +178,41 @@ mut soa2 : Soa(Vec(f64)) = ([1, 4], [2, 5], [3, 6])
 x1 : &f64     = soa1.get("x", 0)
 x2 : &mut f64 = soa2.get("x", 0)
 x3 : &f64     = soa2.get("x", 0)
+
+r1 : SoaMemberRef(Vec(f64), false) = soa1.ref(2)
+# r1.x : &64
+
+r2 : SoaMemberRef(Vec(f64), true) = soa2.ref(2)
+# r2.x : &mut 64
+
+Numeric :: Add, Sub, Mul, Div, Copy
+
+Matrix :: struct(T: type/Numeric, Rows: usize, Cols: usize) {
+    pub values : [Rows * Cols]T = default
+
+    pub new :: fn() Self {
+        return ()
+    }
+
+    pub mul :: fn(Self, other: Matrix(Cols, $OtherCols)) Matrix(Rows, OtherCols) {
+        mut result := Matrix(Rows, OtherCols).new()
+        0..Rows -> for |row| {
+            0..OtherCols -> for |col| {
+                mut sum : T = 0
+                0..Cols -> for |i| {
+                    sum += values[i + row * Cols] * other.values[col + i * OtherCols]
+                }
+                result[col + row * OtherCols] = sum
+            }
+        }
+        return result
+    }
+}
+
+m := Matrix(f64, 4, 4).new()
+v := Matrix(f64, 4, 1).new()
+
+x : Matrix(f64, 4, 1) = m.mul(v)
 
 SoaVectors :: Soa(Vec(f64))
 

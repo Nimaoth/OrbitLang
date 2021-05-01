@@ -33,12 +33,45 @@ pub const Parser = struct {
         self.errorReporter.report(self.errorMsgBuffer.items, location);
     }
 
-    pub fn parseExpression(self: *Self) ?Ast {
+    fn allocateAst(self: *Self, location: Location, spec: AstSpec) *Ast {
+        var ast = self.allocator.allocator.create(Ast) catch unreachable;
+        ast.* = Ast{
+            .location = location,
+            .spec = spec,
+        };
+        return ast;
+    }
+
+    fn skipToken(self: *Self) void {
+        _ = self.lexer.read();
+    }
+
+    pub fn parseExpression(self: *Self) ?*Ast {
         while (self.lexer.peek()) |token| {
+            if (self.parseAtomic()) |ast| {
+                return ast;
+            }
+            //switch (token.kind) {
+            //    else => |kind| {
+            //        self.reportError(&token.location, "Unexpected token: {any}", .{kind});
+            //        _ = self.lexer.read();
+            //    },
+            //}
+        }
+        return null;
+    }
+
+    pub fn parseAtomic(self: *Self) ?*Ast {
+        if (self.lexer.peek()) |token| {
             switch (token.kind) {
+                .Identifier => |name| {
+                    self.skipToken();
+                    var ast = self.allocateAst(token.location, AstSpec{ .Identifier = .{ .name = name } });
+                    return ast;
+                },
                 else => |kind| {
+                    self.skipToken();
                     self.reportError(&token.location, "Unexpected token: {any}", .{kind});
-                    _ = self.lexer.read();
                 },
             }
         }
