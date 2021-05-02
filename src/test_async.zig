@@ -54,13 +54,14 @@ pub fn main() !void {
     for ([_]u8{0} ** 3) |_, i| {
         try calls.append(try Context.init(i, foo, allocator));
     }
+    defer for (calls.items) |*context| {
+        context.deinit();
+    };
 
     while (calls.items.len > 0) {
         var i: usize = 0;
         while (i < calls.items.len) {
-            std.debug.assert(currentContext == null);
             try calls.items[i].call();
-            std.debug.assert(currentContext == null);
             if (calls.items[i].done) {
                 var context = calls.swapRemove(i);
                 context.deinit();
@@ -75,9 +76,11 @@ fn callAsync(func: anytype, args: anytype) callconv(.Async) void {
     var buff = gAllocator.allocAdvanced(u8, 16, @frameSize(func), .at_least) catch unreachable;
     defer gAllocator.free(buff);
     _ = @asyncCall(buff, {}, func, args);
-    var frame = currentContext.?.frame.?;
-    suspend currentContext.?.frame = @frame();
-    resume frame;
+    var frame = currentContext.?.frame;
+    if (frame) |f| {
+        suspend currentContext.?.frame = @frame();
+        resume f;
+    }
 }
 
 fn yield() void {
@@ -94,7 +97,7 @@ fn bar(b: bool) callconv(.Async) void {
 
 fn baz() void {
     std.log.info("baz 1", .{});
-    yield();
+    //yield();
     std.log.info("baz 2", .{});
 }
 

@@ -50,9 +50,7 @@ pub fn main() !void {
     while (calls.items.len > 0) {
         var i: usize = 0;
         while (i < calls.items.len) {
-            std.debug.assert(currentContext == null);
             try calls.items[i].call();
-            std.debug.assert(currentContext == null);
             if (calls.items[i].done) {
                 var context = calls.swapRemove(i);
                 context.deinit();
@@ -77,7 +75,7 @@ fn bar(b: bool) void {
 
 fn baz() void {
     std.log.info("baz 1", .{});
-    yield();
+    //yield();
     std.log.info("baz 2", .{});
 }
 
