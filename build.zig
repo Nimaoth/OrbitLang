@@ -12,6 +12,9 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("OrbitLang", "src/main.zig");
+    exe.addCSourceFile("src/coro.c", &.{});
+    exe.linkLibC();
+    exe.addIncludeDir("src");
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();
