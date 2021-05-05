@@ -23,7 +23,7 @@ pub fn build(b: *std.build.Builder) void {
         exe_name.writer().writeAll("_async") catch unreachable;
     }
 
-    const exe = b.addExecutable(exe_name.items, "src/test.zig");
+    const exe = b.addExecutable(exe_name.items, "src/main.zig");
 
     exe.addBuildOption(bool, "use_fibers", use_fibers);
     exe.addBuildOption(?u64, "fib_of", b.option(u64, "fib_of", "Calculate Fibonnaci number of this."));
@@ -34,6 +34,7 @@ pub fn build(b: *std.build.Builder) void {
     exe.addCSourceFile("src/coro.c", &.{});
     exe.linkLibC();
     exe.addIncludeDir("src");
+    exe.addPackage(.{ .name = "clap", .path = "../zig-clap-0.3.0/zig-clap-0.3.0/clap.zig" });
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();

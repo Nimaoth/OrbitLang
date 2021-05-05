@@ -2,7 +2,7 @@ const std = @import("std");
 
 usingnamespace @import("location.zig");
 
-pub const TokenKind = union(enum) {
+pub const TokenKind = enum {
     Unknown,
     Colon,
     Comma,
@@ -48,17 +48,26 @@ pub const TokenKind = union(enum) {
     KwStruct,
     KwEnum,
     KwFn,
-    Char: u21,
-    Identifier: []const u8,
-    String: []const u8,
-    DocComment: []const u8,
-    IntLiteral: u128,
-    FloatLiteral: f128,
+    Identifier,
+    Char,
+    String,
+    Int,
+    Float,
+    DocComment,
+};
+
+pub const TokenData = union {
+    none: void,
+    char: u21,
+    text: []const u8,
+    int: u128,
+    float: f128,
 };
 
 pub const Token = struct {
     location: Location,
     kind: TokenKind,
+    data: TokenData,
 
     const Self = @This();
 };
@@ -150,6 +159,7 @@ pub const Lexer = struct {
         var token = Token{
             .location = self.location,
             .kind = .Unknown,
+            .data = TokenData{ .none = {} },
         };
 
         switch (self.readChar().?) {
@@ -287,7 +297,8 @@ pub const Lexer = struct {
             },
             '_' => token.kind = .Underscore,
             '"' => if (self.parseString('"')) |text| {
-                token.kind = TokenKind{ .String = text };
+                token.kind = .String;
+                token.data = TokenData{ .text = text };
             } else {
                 token.kind = .Unknown;
             },
@@ -297,7 +308,8 @@ pub const Lexer = struct {
                     if (utf8View.nextCodepoint()) |_| {
                         // text longer than one char
                     } else {
-                        token.kind = TokenKind{ .Char = c };
+                        token.kind = .Char;
+                        token.data = TokenData{ .char = c };
                     }
                 } else {
                     // empty char literal
@@ -307,8 +319,8 @@ pub const Lexer = struct {
                 token.kind = .Unknown;
             },
             //' ' => token.kind = .DocComment: []const u8,
-            //' ' => token.kind = .IntLiteral: u128,
-            //' ' => token.kind = .FloatLiteral: f128,
+            //' ' => token.kind = .Int: u128,
+            //' ' => token.kind = .Float: f128,
             else => |c| {
                 token.kind = .Unknown;
 
@@ -317,12 +329,11 @@ pub const Lexer = struct {
                     while (self.location.index < self.input.len and isValidIdentifierChar(self.input[self.location.index])) {
                         self.nextChar();
                     }
-                    token.kind = TokenKind{ .Identifier = self.input[start..self.location.index] };
+                    token.kind = .Identifier;
+                    token.data = TokenData{ .text = self.input[start..self.location.index] };
                 } else if (c >= '0' and c <= '9') {
                     self.location.index -= 1;
-                    if (self.parseNumber()) |num| {
-                        token.kind = num;
-                    }
+                    self.parseNumber(&token);
                 }
             },
         }
@@ -330,7 +341,7 @@ pub const Lexer = struct {
         return token;
     }
 
-    fn parseNumber(self: *Self) ?TokenKind {
+    fn parseNumber(self: *Self, token: *Token) void {
         var radix: u8 = 10;
         const startRaw = self.location.index;
 
@@ -361,14 +372,15 @@ pub const Lexer = struct {
         // check if empty
         if (start == end) {
             std.log.err("Failed to parse int literal: '{s}'", .{self.input[startRaw..end]});
-            return null;
+            return;
         }
 
         const number = std.fmt.parseInt(u128, self.input[start..end], radix) catch {
             std.log.err("Failed to parse int literal: '{s}'", .{self.input[startRaw..end]});
-            return null;
+            return;
         };
-        return TokenKind{ .IntLiteral = number };
+        token.kind = .Int;
+        token.data = TokenData{ .int = number };
     }
 
     fn parseString(self: *Self, end: u8) ?[]const u8 {
