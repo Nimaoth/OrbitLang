@@ -67,7 +67,7 @@ pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             defer parser.deinit();
 
             var astFormatter = AstFormatter.init();
-            while (try parser.parseExpression()) |expr| {
+            while (try parser.parseTopLevelExpression()) |expr| {
                 try astFormatter.format(std.io.getStdOut().writer(), expr, 0);
                 try std.io.getStdOut().writer().writeAll("\n");
             }

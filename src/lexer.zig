@@ -4,6 +4,7 @@ usingnamespace @import("location.zig");
 
 pub const TokenKind = enum {
     Unknown,
+    Newline,
     Colon,
     Comma,
     Period,
@@ -134,22 +135,35 @@ pub const Lexer = struct {
 
     fn parseNextToken(self: *Self) ?Token {
         // skip whitespace and comments
+        var newlineLocation: ?Location = null;
         while (self.location.index < self.input.len) {
             switch (self.input[self.location.index]) {
                 ' ' => self.nextChar(),
                 '\t' => self.nextChar(),
                 '\r' => self.nextChar(),
-                '\n' => self.nextChar(),
+                '\n' => {
+                    newlineLocation = newlineLocation orelse self.location;
+                    self.nextChar();
+                },
                 '#' => {
                     while (self.location.index < self.input.len) {
                         self.nextChar();
                         if (self.input[self.location.index - 1] == '\n') {
+                            newlineLocation = newlineLocation orelse self.location;
                             break;
                         }
                     }
                 },
                 else => break,
             }
+        }
+
+        if (newlineLocation) |loc| {
+            return Token{
+                .location = loc,
+                .kind = .Newline,
+                .data = TokenData{ .none = {} },
+            };
         }
 
         if (self.location.index >= self.input.len) {

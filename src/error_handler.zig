@@ -24,3 +24,18 @@ pub const ConsoleErrorReporter = struct {
         std.log.err("./examples/ideas.orb:{}:{}: {s}", .{ location.line, location.column, message });
     }
 };
+
+pub const NullErrorReporter = struct {
+    reporter: ErrorReporter = ErrorReporter{
+        .reportFn = report,
+    },
+
+    errors: usize = 0,
+
+    const Self = @This();
+
+    pub fn report(reporter: *ErrorReporter, message: []const u8, location: *const Location) void {
+        const self = @fieldParentPtr(Self, "reporter", reporter);
+        self.errors += 1;
+    }
+};

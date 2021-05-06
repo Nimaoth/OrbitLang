@@ -23,7 +23,13 @@ pub const AstFormatter = struct {
         switch (ast.spec) {
 
             //
-            .Block => |block| {
+            .Assignment => |*ass| {
+                try self.format(writer, ass.pattern, indent);
+                try writer.writeAll(" = ");
+                try self.format(writer, ass.value, indent);
+            },
+
+            .Block => |*block| {
                 try writer.writeAll("{");
                 for (block.body.items) |arg, i| {
                     try self.newLine(writer, indent + 1);
@@ -45,11 +51,49 @@ pub const AstFormatter = struct {
                 try writer.writeAll(")");
             },
 
+            .ConstDecl => |*decl| {
+                try self.format(writer, decl.pattern, indent);
+                try writer.writeAll(" :");
+                if (decl.typ) |typ| {
+                    try writer.writeAll(" ");
+                    try self.format(writer, typ, indent);
+                    try writer.writeAll(" ");
+                }
+                try writer.writeAll(": ");
+                try self.format(writer, decl.value, indent);
+            },
+
+            .VarDecl => |*decl| {
+                try self.format(writer, decl.pattern, indent);
+                try writer.writeAll(" :");
+                if (decl.typ) |typ| {
+                    try writer.writeAll(" ");
+                    try self.format(writer, typ, indent);
+                    try writer.writeAll(" ");
+                }
+                if (decl.value) |value| {
+                    try writer.writeAll("= ");
+                    try self.format(writer, value, indent);
+                }
+            },
+
             .Float => |float| try std.fmt.format(writer, "{}", .{float.value}),
 
             .Identifier => |id| try writer.writeAll(id.name),
 
             .Int => |int| try std.fmt.format(writer, "{}", .{int.value}),
+
+            .Lambda => |*lambda| {
+                try writer.writeAll("|");
+                for (lambda.args.items) |arg, i| {
+                    if (i > 0) {
+                        try writer.writeAll(", ");
+                    }
+                    try self.format(writer, arg, indent);
+                }
+                try writer.writeAll("| ");
+                try self.format(writer, lambda.body, indent);
+            },
 
             .Pipe => |*pipe| {
                 try self.format(writer, pipe.left, indent);
