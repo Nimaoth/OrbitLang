@@ -6,6 +6,12 @@ usingnamespace @import("lexer.zig");
 usingnamespace @import("parser.zig");
 usingnamespace @import("error_handler.zig");
 usingnamespace @import("code_formatter.zig");
+usingnamespace @import("dot_printer.zig");
+
+pub const StringBuf = std.ArrayList(u8);
+pub fn List(comptime T: type) type {
+    return std.ArrayList(T);
+}
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -17,6 +23,7 @@ pub fn main() anyerror!void {
         clap.parseParam("-c, --compile          Compile input files.") catch unreachable,
         clap.parseParam("-l, --lex              Only lex input files.") catch unreachable,
         clap.parseParam("-p, --parse            Only parse input files.") catch unreachable,
+        clap.parseParam("-g, --graph            Print ast as graph.") catch unreachable,
         clap.parseParam("<POS>...") catch unreachable,
     };
 
@@ -45,6 +52,11 @@ pub fn main() anyerror!void {
         return;
     }
 
+    if (args.flag("--graph")) {
+        try printGraph(files.items, allocator);
+        return;
+    }
+
     if (args.flag("--compile")) {
         try compileFiles(files.items, allocator);
         return;
@@ -70,6 +82,51 @@ pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             while (try parser.parseTopLevelExpression()) |expr| {
                 try astFormatter.format(std.io.getStdOut().writer(), expr, 0);
                 try std.io.getStdOut().writer().writeAll("\n");
+            }
+
+            std.debug.print("\n", .{});
+        }
+    };
+
+    if (files.len == 0) {
+        T.parseFile("./examples/test.orb", _allocator) catch |err| {
+            std.log.err("Failed to parse file {s}: {any}", .{ "./examples/test.orb", err });
+        };
+    } else {
+        for (files) |file| {
+            T.parseFile(file, _allocator) catch |err| {
+                std.log.err("Failed to parse file {s}: {any}", .{ file, err });
+            };
+        }
+    }
+}
+
+pub fn printGraph(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!void {
+    const T = struct {
+        pub fn parseFile(file: []const u8, allocator: *std.mem.Allocator) anyerror!void {
+            const fileContent = try std.fs.cwd().readFileAlloc(allocator, file, std.math.maxInt(usize));
+            defer allocator.free(fileContent);
+
+            var newFileName = StringBuf.init(allocator);
+            try std.fmt.format(newFileName.writer(), "{s}.gv", .{file});
+            defer newFileName.deinit();
+
+            var graphFile = try std.fs.cwd().createFile(newFileName.items, .{});
+            try graphFile.writer().writeAll("digraph Ast {\n");
+            defer {
+                graphFile.writer().writeAll("}") catch {};
+                graphFile.close();
+            }
+
+            var lexer = try Lexer.init(fileContent);
+            var errorReporter = ConsoleErrorReporter{};
+            var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
+            defer parser.deinit();
+
+            var dotPrinter = DotPrinter.init();
+
+            while (try parser.parseTopLevelExpression()) |expr| {
+                try dotPrinter.printGraph(graphFile.writer(), expr);
             }
 
             std.debug.print("\n", .{});

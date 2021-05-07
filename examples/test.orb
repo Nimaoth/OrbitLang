@@ -1,32 +1,8 @@
-hi(was, "geht?", 3) -> 123 -> if(lol, 3())
-
-||{}
-|  |
-{
-    }
-
-|a| b(a)
-
-|
-true, false,
-lol, ("uiae")
-b
-| 5
-
-|a, foo() || lol| a
-
-a = foo() -> |a| a
-
-x := a(5 = 5, 5)
-
-x := Vec(x=2, y=7) ->
-    |x, y| add(x, y) -> print()
-
-Vec :: @meta() @struct(T) {
-    x : T
-    y : T
-}
-
 @range(0, 5) -> @for() |x, i| {
     print("{}: {}", i, x)
 }
+
+@insert() T.members -> @for() |m| {
+    @yield() self.(@id(m.name)) = @mut(@typeof(self).mutable) self.(@id(m.name))
+}
+

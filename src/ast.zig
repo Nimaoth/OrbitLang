@@ -5,6 +5,10 @@ usingnamespace @import("location.zig");
 pub const Name = []const u8;
 
 pub const AstSpec = union(enum) {
+    Access: struct {
+        left: *Ast,
+        right: *Ast,
+    },
     Assignment: struct {
         pattern: *Ast,
         value: *Ast,
@@ -46,9 +50,13 @@ pub const AstSpec = union(enum) {
     String: struct {
         value: []const u8,
     },
+    Tuple: struct {
+        values: std.ArrayList(*Ast),
+    },
 };
 
 pub const Ast = struct {
+    id: usize,
     location: Location,
     spec: AstSpec,
 };

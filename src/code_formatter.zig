@@ -23,6 +23,14 @@ pub const AstFormatter = struct {
         switch (ast.spec) {
 
             //
+            .Access => |*acc| {
+                try writer.writeAll("[");
+                try self.format(writer, acc.left, indent);
+                try writer.writeAll("].[");
+                try self.format(writer, acc.right, indent);
+                try writer.writeAll("]");
+            },
+
             .Assignment => |*ass| {
                 try self.format(writer, ass.pattern, indent);
                 try writer.writeAll(" = ");
@@ -102,6 +110,17 @@ pub const AstFormatter = struct {
             },
 
             .String => |text| try std.fmt.format(writer, "\"{s}\"", .{text.value}),
+
+            .Tuple => |*tuple| {
+                try writer.writeAll(".(");
+                for (tuple.values.items) |value, i| {
+                    if (i > 0) {
+                        try writer.writeAll(", ");
+                    }
+                    try self.format(writer, value, indent);
+                }
+                try writer.writeAll(")");
+            },
 
             //else => try writer.writeAll("<Unknown>"),
         }

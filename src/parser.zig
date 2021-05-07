@@ -10,6 +10,7 @@ pub const Parser = struct {
     lexer: Lexer,
     errorReporter: *ErrorReporter,
     errorMsgBuffer: std.ArrayList(u8),
+    nextId: usize = 0,
 
     const Self = @This();
 
@@ -47,9 +48,11 @@ pub const Parser = struct {
     fn allocateAst(self: *Self, location: Location, spec: AstSpec) !*Ast {
         var ast = try self.allocator.allocator.create(Ast);
         ast.* = Ast{
+            .id = self.nextId,
             .location = location,
             .spec = spec,
         };
+        self.nextId += 1;
         return ast;
     }
 
@@ -66,6 +69,27 @@ pub const Parser = struct {
             }
         }
         return null;
+    }
+
+    fn checkExpression(self: *Self, ctx: Context) bool {
+        if (self.lexer.peek()) |token| {
+            switch (token.kind) {
+                .Identifier,
+                .String,
+                .Int,
+                .Float,
+                .ParenLeft,
+                .BraceLeft,
+                .BracketLeft,
+                .Ampersand,
+                .Plus,
+                .Minus,
+                => return true,
+                .Bar => return ctx.allowTuple,
+                else => return false,
+            }
+        }
+        return false;
     }
 
     fn consume(self: *Self, kind: TokenKind, report: bool) ?Token {
@@ -130,7 +154,7 @@ pub const Parser = struct {
     }
 
     fn parseAssignmentOrDeclOrLess(self: *Self, ctx: Context) anyerror!?*Ast {
-        var expr = (try self.parsePipeOrLess(ctx)) orelse return null;
+        var expr = (try self.parseCommaOrLess(ctx)) orelse return null;
 
         if (self.lexer.peek()) |next| {
             switch (next.kind) {
@@ -138,7 +162,7 @@ pub const Parser = struct {
                 .Equal => {
                     self.skipToken();
                     _ = self.skipNewline();
-                    var value = (try self.parsePipeOrLess(ctx)) orelse return null;
+                    var value = (try self.parseCommaOrLess(ctx)) orelse return null;
                     return try self.allocateAst(expr.location, AstSpec{ .Assignment = .{
                         .pattern = expr,
                         .value = value,
@@ -155,7 +179,7 @@ pub const Parser = struct {
                             // _ ::
                             .Colon => {
                                 self.skipToken();
-                                const value = (try self.parsePipeOrLess(ctx)) orelse return null;
+                                const value = (try self.parseCommaOrLess(ctx)) orelse return null;
                                 return try self.allocateAst(expr.location, AstSpec{ .ConstDecl = .{
                                     .pattern = expr,
                                     .typ = null,
@@ -166,7 +190,7 @@ pub const Parser = struct {
                             // _ :=
                             .Equal => {
                                 self.skipToken();
-                                const value = (try self.parsePipeOrLess(ctx)) orelse return null;
+                                const value = (try self.parseCommaOrLess(ctx)) orelse return null;
                                 return try self.allocateAst(expr.location, AstSpec{ .VarDecl = .{
                                     .pattern = expr,
                                     .typ = null,
@@ -176,7 +200,7 @@ pub const Parser = struct {
 
                             // _ : _
                             else => {
-                                const typ = (try self.parsePipeOrLess(ctx)) orelse return null;
+                                const typ = (try self.parseCommaOrLess(ctx)) orelse return null;
 
                                 if (self.lexer.peek()) |next3| {
                                     switch (next3.kind) {
@@ -184,7 +208,7 @@ pub const Parser = struct {
                                         .Colon => {
                                             self.skipToken();
                                             _ = self.skipNewline();
-                                            const value = (try self.parsePipeOrLess(ctx)) orelse return null;
+                                            const value = (try self.parseCommaOrLess(ctx)) orelse return null;
                                             return try self.allocateAst(expr.location, AstSpec{ .ConstDecl = .{
                                                 .pattern = expr,
                                                 .typ = typ,
@@ -196,7 +220,7 @@ pub const Parser = struct {
                                         .Equal => {
                                             self.skipToken();
                                             _ = self.skipNewline();
-                                            const value = (try self.parsePipeOrLess(ctx)) orelse return null;
+                                            const value = (try self.parseCommaOrLess(ctx)) orelse return null;
                                             return try self.allocateAst(expr.location, AstSpec{ .VarDecl = .{
                                                 .pattern = expr,
                                                 .typ = typ,
@@ -229,7 +253,7 @@ pub const Parser = struct {
                             },
                         }
                     }
-                    var value = (try self.parsePipeOrLess(ctx)) orelse return null;
+                    var value = (try self.parseCommaOrLess(ctx)) orelse return null;
                     return try self.allocateAst(expr.location, AstSpec{ .Assignment = .{
                         .pattern = expr,
                         .value = value,
@@ -238,6 +262,35 @@ pub const Parser = struct {
 
                 else => return expr,
             }
+        }
+        return expr;
+    }
+
+    fn parseCommaOrLess(self: *Self, ctx: Context) anyerror!?*Ast {
+        var expr = (try self.parsePipeOrLess(ctx)) orelse return null;
+        if (ctx.allowTuple and self.check(.Comma) != null) {
+            var args = std.ArrayList(*Ast).init(&self.allocator.allocator);
+            try args.append(expr);
+            while (self.lexer.peek()) |next| {
+                switch (next.kind) {
+                    .Comma => {
+                        self.skipToken();
+                        _ = self.skipNewline();
+
+                        if (self.checkExpression(ctx)) {
+                            if (try self.parsePipeOrLess(ctx)) |e| {
+                                try args.append(e);
+                            }
+                        } else {
+                            break;
+                        }
+                    },
+                    else => break,
+                }
+            }
+            return try self.allocateAst(expr.location, AstSpec{ .Tuple = .{
+                .values = args,
+            } });
         }
         return expr;
     }
@@ -264,9 +317,19 @@ pub const Parser = struct {
 
     pub fn parseCallOrLess(self: *Self, ctx: Context) anyerror!?*Ast {
         var expr = (try self.parseAtomic(ctx)) orelse return null;
-        if (self.lexer.peek()) |next| {
+        while (self.lexer.peek()) |next| {
             switch (next.kind) {
-                .ParenLeft => return try self.parseCall(expr, ctx),
+                .ParenLeft => {
+                    expr = (try self.parseCall(expr, ctx)) orelse return expr;
+                },
+                .Period => {
+                    self.skipToken();
+                    const right = (try self.parseAtomic(ctx)) orelse return expr;
+                    expr = try self.allocateAst(expr.location, AstSpec{ .Access = .{
+                        .left = expr,
+                        .right = right,
+                    } });
+                },
                 else => return expr,
             }
         }
@@ -365,7 +428,7 @@ pub const Parser = struct {
                 .Bar,
                 => {
                     if (token.kind != .Bar or ctx.allowLambda) {
-                        var block = (try self.parseCallOrLess(ctx)) orelse return null;
+                        var block = (try self.parsePipeOrLess(ctx)) orelse return null;
                         try args.append(block);
                     }
                 },
