@@ -7,11 +7,7 @@ usingnamespace @import("parser.zig");
 usingnamespace @import("error_handler.zig");
 usingnamespace @import("code_formatter.zig");
 usingnamespace @import("dot_printer.zig");
-
-pub const StringBuf = std.ArrayList(u8);
-pub fn List(comptime T: type) type {
-    return std.ArrayList(T);
-}
+usingnamespace @import("compiler.zig");
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -64,7 +60,17 @@ pub fn main() anyerror!void {
 }
 
 pub fn compileFiles(files: [][]const u8, allocator: *std.mem.Allocator) anyerror!void {
-    return error.NotImplemented;
+    var errorReporter = ConsoleErrorReporter{};
+    var compiler = try Compiler.init(allocator, &errorReporter.reporter);
+    defer compiler.deinit();
+
+    if (files.len == 0) {
+        try compiler.compileAndRunFile("./examples/test.orb");
+    } else {
+        for (files) |file| {
+            try compiler.compileAndRunFile(file);
+        }
+    }
 }
 
 pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!void {

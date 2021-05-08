@@ -1,8 +1,1 @@
-@range(0, 5) -> @for() |x, i| {
-    print("{}: {}", i, x)
-}
-
-@insert() T.members -> @for() |m| {
-    @yield() self.(@id(m.name)) = @mut(@typeof(self).mutable) self.(@id(m.name))
-}
-
+@print(101, 0x101, 0b101)
