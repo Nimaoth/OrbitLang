@@ -3,6 +3,7 @@ const std = @import("std");
 usingnamespace @import("location.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
+usingnamespace @import("types.zig");
 usingnamespace @import("error_handler.zig");
 
 pub const Parser = struct {
@@ -50,6 +51,7 @@ pub const Parser = struct {
         ast.* = Ast{
             .id = self.nextId,
             .location = location,
+            .typ = UnknownType,
             .spec = spec,
         };
         self.nextId += 1;

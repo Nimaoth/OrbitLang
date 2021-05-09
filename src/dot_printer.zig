@@ -1,6 +1,7 @@
 const std = @import("std");
 
 usingnamespace @import("ast.zig");
+usingnamespace @import("types.zig");
 
 //digraph graphname {
 //    "A" -> {B C}
@@ -8,26 +9,37 @@ usingnamespace @import("ast.zig");
 //    X -> " lol hi"
 //}
 pub const DotPrinter = struct {
-    id: usize = 0,
+    printTypes: bool,
 
     const Self = @This();
 
-    pub fn init() Self {
-        return Self{};
+    pub fn init(writer: anytype, printTypes: bool) !Self {
+        try writer.writeAll("digraph Ast {\n");
+        return Self{
+            .printTypes = printTypes,
+        };
     }
 
-    fn newLine(self: *DotPrinter, writer: anytype) anyerror!void {
+    pub fn deinit(self: *Self, writer: anytype) void {
+        writer.writeAll("}") catch {};
+    }
+
+    fn newLine(self: *Self, writer: anytype) anyerror!void {
         try writer.writeAll("\n    ");
     }
 
-    fn printNode(self: *DotPrinter, writer: anytype, ast: *Ast) anyerror!void {
+    fn printNode(self: *Self, writer: anytype, ast: *Ast) anyerror!void {
         const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
         try std.fmt.format(writer, "\"{s} #{}", .{ @tagName(@as(UnionTagType, ast.spec)), ast.id });
+        if (self.printTypes) {
+            try std.fmt.format(writer, "\\n", .{});
+            try self.printType(writer, ast.typ);
+        }
         try self.printNodeArg(writer, ast);
         try std.fmt.format(writer, "\"", .{});
     }
 
-    fn printConnection(self: *DotPrinter, writer: anytype, from: *Ast, to: *Ast) anyerror!void {
+    fn printConnection(self: *Self, writer: anytype, from: *Ast, to: *Ast) anyerror!void {
         try writer.writeAll("    ");
         try self.printNode(writer, from);
         try writer.writeAll(" -> ");
@@ -35,7 +47,7 @@ pub const DotPrinter = struct {
         try writer.writeAll("\n");
     }
 
-    pub fn printGraph(self: *DotPrinter, writer: anytype, _ast: *Ast) anyerror!void {
+    pub fn printGraph(self: *Self, writer: anytype, _ast: *Ast) anyerror!void {
         switch (_ast.spec) {
 
             //
@@ -135,6 +147,41 @@ pub const DotPrinter = struct {
             .Pipe => |*pipe| try std.fmt.format(writer, "\\n->", .{}),
             .String => |text| try std.fmt.format(writer, "\\n{s}", .{text.value}),
             .Tuple => |*tuple| try std.fmt.format(writer, "\\n()", .{}),
+
+            //else => try writer.writeAll("<Unknown>"),
+        }
+    }
+
+    fn printType(self: *Self, writer: anytype, typ: *const Type) anyerror!void {
+        switch (typ.kind) {
+            .Unknown => try std.fmt.format(writer, "<Unknown>", .{}),
+            .Void => try std.fmt.format(writer, "void", .{}),
+            .Unreachable => try std.fmt.format(writer, "unreachable", .{}),
+            .Bool => try std.fmt.format(writer, "b{}", .{typ.size * 8}),
+            .Float => try std.fmt.format(writer, "f{}", .{typ.size * 8}),
+            .Int => |*int| try std.fmt.format(writer, "{s}{}", .{
+                (if (int.signed) "i" else "u"),
+                typ.size * 8,
+            }),
+            .Pointer => |*ptr| {
+                try std.fmt.format(writer, "^", .{});
+                try self.printType(writer, ptr.child);
+            },
+            .Slice => |*slc| {
+                try std.fmt.format(writer, "[]", .{});
+                try self.printType(writer, slc.child);
+            },
+            .Array => |*arr| {
+                switch (arr.len) {
+                    .Known => |len| try std.fmt.format(writer, "[{}]", .{len}),
+                    .Unknown => try std.fmt.format(writer, "[?]", .{}),
+                    .Generic => |name| try std.fmt.format(writer, "[{s}]", .{name}),
+                }
+                try self.printType(writer, arr.child);
+            },
+            .Struct => |*str| {
+                try std.fmt.format(writer, "struct", .{});
+            },
 
             //else => try writer.writeAll("<Unknown>"),
         }

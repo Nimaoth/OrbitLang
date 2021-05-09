@@ -2,6 +2,7 @@ const std = @import("std");
 
 const clap = @import("clap");
 
+usingnamespace @import("common.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("parser.zig");
 usingnamespace @import("error_handler.zig");
@@ -113,23 +114,20 @@ pub fn printGraph(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             const fileContent = try std.fs.cwd().readFileAlloc(allocator, file, std.math.maxInt(usize));
             defer allocator.free(fileContent);
 
-            var newFileName = StringBuf.init(allocator);
-            try std.fmt.format(newFileName.writer(), "{s}.gv", .{file});
-            defer newFileName.deinit();
-
-            var graphFile = try std.fs.cwd().createFile(newFileName.items, .{});
-            try graphFile.writer().writeAll("digraph Ast {\n");
-            defer {
-                graphFile.writer().writeAll("}") catch {};
-                graphFile.close();
-            }
-
             var lexer = try Lexer.init(fileContent);
             var errorReporter = ConsoleErrorReporter{};
             var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
             defer parser.deinit();
 
-            var dotPrinter = DotPrinter.init();
+            var newFileName = StringBuf.init(allocator);
+            try std.fmt.format(newFileName.writer(), "{s}.gv", .{file});
+            defer newFileName.deinit();
+
+            var graphFile = try std.fs.cwd().createFile(newFileName.items, .{});
+            defer graphFile.close();
+
+            var dotPrinter = try DotPrinter.init(graphFile.writer(), false);
+            defer dotPrinter.deinit(graphFile.writer());
 
             while (try parser.parseTopLevelExpression()) |expr| {
                 try dotPrinter.printGraph(graphFile.writer(), expr);

@@ -1,16 +1,13 @@
 const std = @import("std");
 
+usingnamespace @import("common.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
 usingnamespace @import("parser.zig");
 usingnamespace @import("error_handler.zig");
+usingnamespace @import("types.zig");
 usingnamespace @import("code_formatter.zig");
-
-pub const String = []const u8;
-pub const StringBuf = std.ArrayList(u8);
-pub fn List(comptime T: type) type {
-    return std.ArrayList(T);
-}
+usingnamespace @import("dot_printer.zig");
 
 pub const SourceFile = struct {
     path: String,
@@ -27,7 +24,11 @@ pub const SourceFile = struct {
 pub const Compiler = struct {
     allocator: *std.mem.Allocator,
     errorReporter: *ErrorReporter,
+    typeRegistry: TypeRegistry,
+
     files: List(SourceFile),
+
+    // execution
     stack: List(u8),
     stackPointer: usize = 0,
 
@@ -39,7 +40,10 @@ pub const Compiler = struct {
         return Self{
             .allocator = allocator,
             .errorReporter = errorReporter,
+            .typeRegistry = try TypeRegistry.init(allocator),
+
             .files = List(SourceFile).init(allocator),
+
             .stack = stack,
         };
     }
@@ -47,6 +51,7 @@ pub const Compiler = struct {
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.files.deinit();
+        self.typeRegistry.deinit();
     }
 
     pub fn compileAndRunFile(self: *Self, path: String) anyerror!void {
@@ -57,16 +62,39 @@ pub const Compiler = struct {
         var parser = Parser.init(lexer, self.allocator, self.errorReporter);
         defer parser.deinit();
 
+        var newFileName = StringBuf.init(self.allocator);
+        try std.fmt.format(newFileName.writer(), "{s}.gv", .{path});
+        defer newFileName.deinit();
+
+        var graphFile = try std.fs.cwd().createFile(newFileName.items, .{});
+        defer graphFile.close();
+
+        var dotPrinter = try DotPrinter.init(graphFile.writer(), true);
+        defer dotPrinter.deinit(graphFile.writer());
+
         while (try parser.parseTopLevelExpression()) |ast| {
             try self.compileAst(ast);
+            try dotPrinter.printGraph(graphFile.writer(), ast);
             try self.runAst(ast);
         }
     }
 
     fn compileAst(self: *Self, _ast: *Ast) anyerror!void {
         switch (_ast.spec) {
-            .Int => |*ast| {
-                std.log.debug("compileAst(int) {}", .{ast.value});
+            .Int => |*int| {
+                std.log.debug("compileAst(int) {}", .{int.value});
+                _ast.typ = try self.typeRegistry.getIntType(8, false, null);
+            },
+            .Identifier => |*id| {
+                std.log.debug("compileAst(id) {s}", .{id.name});
+
+                if (std.mem.eql(u8, id.name, "true")) {
+                    _ast.typ = try self.typeRegistry.getBoolType(1);
+                } else if (std.mem.eql(u8, id.name, "false")) {
+                    _ast.typ = try self.typeRegistry.getBoolType(1);
+                } else {
+                    _ast.typ = try self.typeRegistry.getVoidType();
+                }
             },
             .Call => |*ast| {
                 switch (ast.func.spec) {
@@ -74,6 +102,12 @@ pub const Compiler = struct {
                         if (id.name[0] == '@') {
                             if (std.mem.eql(u8, id.name, "@print")) {
                                 std.log.debug("compileAst(Call)", .{});
+
+                                for (ast.args.items) |arg| {
+                                    try self.compileAst(arg);
+                                }
+
+                                _ast.typ = try self.typeRegistry.getVoidType();
                             }
                         }
                     },
@@ -90,9 +124,15 @@ pub const Compiler = struct {
 
     fn runAst(self: *Self, _ast: *Ast) anyerror!void {
         switch (_ast.spec) {
-            .Int => |*ast| {
-                try self.push(ast.value);
-                std.log.debug("runAst(int) {}", .{ast.value});
+            .Int => |*int| {
+                try self.push(int.value);
+            },
+            .Identifier => |*id| {
+                if (std.mem.eql(u8, id.name, "true")) {
+                    try self.push(true);
+                } else if (std.mem.eql(u8, id.name, "false")) {
+                    try self.push(false);
+                }
             },
             .Call => |*ast| {
                 switch (ast.func.spec) {
@@ -118,11 +158,25 @@ pub const Compiler = struct {
         std.log.debug("runCallPrint(Call)", .{});
         const call = &ast.spec.Call;
 
-        for (call.args.items) |arg| {
+        for (call.args.items) |arg, i| {
+            if (i > 0) {
+                std.debug.print(" ", .{});
+            }
             try self.runAst(arg);
-            const value = try self.pop(u128);
-            std.debug.print("{}\n", .{value});
+
+            switch (arg.typ.kind) {
+                .Int => |*int| {
+                    std.debug.print("{}", .{try self.pop(u128)});
+                },
+                .Bool => {
+                    std.debug.print("{}", .{try self.pop(bool)});
+                },
+                else => {
+                    std.debug.print("<unknown>", .{});
+                },
+            }
         }
+        std.debug.print("\n", .{});
     }
 
     fn push(self: *Self, value: anytype) !void {

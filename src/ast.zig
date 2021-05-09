@@ -1,6 +1,7 @@
 const std = @import("std");
 
 usingnamespace @import("location.zig");
+usingnamespace @import("types.zig");
 
 pub const Name = []const u8;
 
@@ -58,5 +59,6 @@ pub const AstSpec = union(enum) {
 pub const Ast = struct {
     id: usize,
     location: Location,
+    typ: *const Type,
     spec: AstSpec,
 };
