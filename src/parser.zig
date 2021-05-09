@@ -430,7 +430,8 @@ pub const Parser = struct {
                 .Bar,
                 => {
                     if (token.kind != .Bar or ctx.allowLambda) {
-                        var block = (try self.parsePipeOrLess(ctx)) orelse return null;
+                        //var block = (try self.parsePipeOrLess(ctx)) orelse return null;
+                        var block = (try self.parseCallOrLess(ctx)) orelse return null;
                         try args.append(block);
                     }
                 },

@@ -23,6 +23,7 @@ pub const StructMember = struct {
 
 pub const TypeKind = union(enum) {
     Unknown: void,
+    Error: void,
     Void: void,
     Unreachable: void,
     Bool: void,
@@ -43,10 +44,6 @@ pub const TypeKind = union(enum) {
     Struct: struct {
         members: List(StructMember),
     },
-
-    pub fn is(self: *Self, tag: std.meta.Tag(@This())) bool {
-        return @as(std.meta.Tag(@This()), self.*) == tag;
-    }
 };
 
 pub const TypeSize = union(enum) {
@@ -92,12 +89,17 @@ pub const Type = struct {
             },
         }
     }
+
+    pub fn is(self: *const Self, tag: std.meta.Tag(TypeKind)) bool {
+        return @as(std.meta.Tag(TypeKind), self.kind) == tag;
+    }
 };
 
 pub const TypeRegistry = struct {
     allocator: std.heap.ArenaAllocator,
 
     voidType: ?*Type = null,
+    errorType: ?*Type = null,
 
     const Self = @This();
 
@@ -159,5 +161,22 @@ pub const TypeRegistry = struct {
             };
         }
         return self.voidType.?;
+    }
+
+    pub fn getErrorType(self: *Self) !*const Type {
+        if (self.errorType == null) {
+            self.errorType = try self.allocator.allocator.create(Type);
+            self.errorType.?.* = Type{
+                .flags = .{
+                    .ready = true,
+                    .size_set = true,
+                    .generic = false,
+                    .generic_set = true,
+                },
+                .size = 0,
+                .kind = .Error,
+            };
+        }
+        return self.errorType.?;
     }
 };

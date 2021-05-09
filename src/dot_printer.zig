@@ -154,6 +154,7 @@ pub const DotPrinter = struct {
 
     fn printType(self: *Self, writer: anytype, typ: *const Type) anyerror!void {
         switch (typ.kind) {
+            .Error => try std.fmt.format(writer, "<Error>", .{}),
             .Unknown => try std.fmt.format(writer, "<Unknown>", .{}),
             .Void => try std.fmt.format(writer, "void", .{}),
             .Unreachable => try std.fmt.format(writer, "unreachable", .{}),

@@ -80,7 +80,7 @@ pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             const fileContent = try std.fs.cwd().readFileAlloc(allocator, file, std.math.maxInt(usize));
             defer allocator.free(fileContent);
 
-            var lexer = try Lexer.init(fileContent);
+            var lexer = try Lexer.init(file, fileContent);
             var errorReporter = ConsoleErrorReporter{};
             var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
             defer parser.deinit();
@@ -114,7 +114,7 @@ pub fn printGraph(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             const fileContent = try std.fs.cwd().readFileAlloc(allocator, file, std.math.maxInt(usize));
             defer allocator.free(fileContent);
 
-            var lexer = try Lexer.init(fileContent);
+            var lexer = try Lexer.init(file, fileContent);
             var errorReporter = ConsoleErrorReporter{};
             var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
             defer parser.deinit();
@@ -156,7 +156,7 @@ pub fn lexFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!vo
             const fileContent = try std.fs.cwd().readFileAlloc(allocator, file, std.math.maxInt(usize));
             defer allocator.free(fileContent);
 
-            var lexer = try Lexer.init(fileContent);
+            var lexer = try Lexer.init(file, fileContent);
 
             while (lexer.read()) |token| {
                 switch (token.kind) {

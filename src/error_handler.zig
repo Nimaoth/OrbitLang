@@ -21,7 +21,7 @@ pub const ConsoleErrorReporter = struct {
 
     pub fn report(reporter: *ErrorReporter, message: []const u8, location: *const Location) void {
         const self = @fieldParentPtr(Self, "reporter", reporter);
-        std.log.err("./examples/ideas.orb:{}:{}: {s}", .{ location.line, location.column, message });
+        std.debug.print("{s}:{}:{}: {s}\n", .{ location.file, location.line, location.column, message });
     }
 };
 

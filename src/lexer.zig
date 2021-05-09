@@ -1,5 +1,6 @@
 const std = @import("std");
 
+usingnamespace @import("common.zig");
 usingnamespace @import("location.zig");
 
 pub const TokenKind = enum {
@@ -60,7 +61,7 @@ pub const TokenKind = enum {
 pub const TokenData = union {
     none: void,
     char: u21,
-    text: []const u8,
+    text: String,
     int: u128,
     float: f128,
 };
@@ -74,20 +75,20 @@ pub const Token = struct {
 };
 
 pub const Lexer = struct {
-    input: []const u8,
+    input: String,
     peeked: ?Token,
     location: Location,
 
     const Self = @This();
 
-    pub fn init(input: []const u8) !Lexer {
+    pub fn init(filename: String, input: String) !Lexer {
         if (!std.unicode.utf8ValidateSlice(input)) {
             return error.InvalidUtf8;
         }
         return Lexer{
             .input = input,
             .peeked = null,
-            .location = .{ .index = 0, .line = 1, .column = 1 },
+            .location = .{ .file = filename, .index = 0, .line = 1, .column = 1 },
         };
     }
 
