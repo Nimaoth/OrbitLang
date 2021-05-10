@@ -1,7 +1,3 @@
-true -> @then() @print(123)
-3 -> @repeat() @print(3)
-5 -> @repeat() {
-    @print(987)
-    true -> @then() @print(5)
-}
+a := 5
+a -> @repeat() @print(a)
 

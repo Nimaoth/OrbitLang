@@ -2,6 +2,7 @@ const std = @import("std");
 
 usingnamespace @import("location.zig");
 usingnamespace @import("types.zig");
+usingnamespace @import("symbol.zig");
 
 pub const Name = []const u8;
 
@@ -25,6 +26,7 @@ pub const AstSpec = union(enum) {
         pattern: *Ast,
         typ: ?*Ast,
         value: ?*Ast,
+        symbol: ?*Symbol = null,
     },
     ConstDecl: struct {
         pattern: *Ast,
@@ -36,6 +38,7 @@ pub const AstSpec = union(enum) {
     },
     Identifier: struct {
         name: Name,
+        symbol: ?*Symbol = null,
     },
     Int: struct {
         value: u128,

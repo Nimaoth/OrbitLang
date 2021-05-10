@@ -11,6 +11,7 @@ usingnamespace @import("dot_printer.zig");
 
 pub const CodeRunner = struct {
     allocator: *std.mem.Allocator,
+    globalVariables: std.heap.ArenaAllocator,
     errorReporter: *ErrorReporter,
 
     // execution
@@ -26,17 +27,24 @@ pub const CodeRunner = struct {
             .allocator = allocator,
             .errorReporter = errorReporter,
             .stack = stack,
+            .globalVariables = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
+        self.globalVariables.deinit();
     }
 
     fn push(self: *Self, value: anytype) !void {
         const size = @sizeOf(@TypeOf(value));
         std.mem.copy(u8, self.stack.items[self.stackPointer..], std.mem.asBytes(&value));
         self.stackPointer += size;
+    }
+
+    fn pushSlice(self: *Self, value: []u8) !void {
+        std.mem.copy(u8, self.stack.items[self.stackPointer..], value);
+        self.stackPointer += value.len;
     }
 
     fn pop(self: *Self, comptime T: type) !T {
@@ -48,6 +56,15 @@ pub const CodeRunner = struct {
         var value: T = undefined;
         std.mem.copy(u8, std.mem.asBytes(&value), self.stack.items[self.stackPointer..(self.stackPointer + size)]);
         return value;
+    }
+
+    fn popInto(self: *Self, dest: []u8) !void {
+        const size = dest.len;
+        if (self.stackPointer < size) {
+            return error.StackUnderflow;
+        }
+        self.stackPointer -= size;
+        std.mem.copy(u8, dest, self.stack.items[self.stackPointer..(self.stackPointer + size)]);
     }
 
     fn popBytes(self: *Self, size: usize) !void {
@@ -66,12 +83,16 @@ pub const CodeRunner = struct {
                     try self.push(true);
                 } else if (std.mem.eql(u8, id.name, "false")) {
                     try self.push(false);
+                } else {
+                    std.debug.assert(id.symbol != null);
+                    try self.pushSlice(id.symbol.?.kind.GlobalVariable.value.?);
                 }
             },
             .Int => |*int| {
                 try self.push(int.value);
             },
             .Pipe => try self.runPipe(ast),
+            .VarDecl => try self.runVarDecl(ast),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
                 std.log.debug("runAst({s}) Not implemented", .{@tagName(@as(UnionTagType, ast.spec))});
@@ -177,7 +198,25 @@ pub const CodeRunner = struct {
     }
 
     fn runPipe(self: *Self, ast: *Ast) anyerror!void {
+        //std.log.debug("runPipe()", .{});
         const pipe = &ast.spec.Pipe;
         try self.runAst(pipe.right);
+    }
+
+    fn runVarDecl(self: *Self, ast: *Ast) anyerror!void {
+        std.log.debug("runVarDecl()", .{});
+        const decl = &ast.spec.VarDecl;
+        std.debug.assert(decl.symbol != null);
+
+        const symbol = decl.symbol.?;
+        const globalVariable = &symbol.kind.GlobalVariable;
+
+        // @todo: alignment
+        globalVariable.value = try self.globalVariables.allocator.alloc(u8, globalVariable.typ.size);
+
+        if (decl.value) |value| {
+            try self.runAst(value);
+            try self.popInto(globalVariable.value.?);
+        }
     }
 };

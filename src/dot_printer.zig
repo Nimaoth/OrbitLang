@@ -156,6 +156,7 @@ pub const DotPrinter = struct {
         switch (typ.kind) {
             .Error => try std.fmt.format(writer, "<Error>", .{}),
             .Unknown => try std.fmt.format(writer, "<Unknown>", .{}),
+            .Type => try std.fmt.format(writer, "type", .{}),
             .Void => try std.fmt.format(writer, "void", .{}),
             .Unreachable => try std.fmt.format(writer, "unreachable", .{}),
             .Bool => try std.fmt.format(writer, "b{}", .{typ.size * 8}),

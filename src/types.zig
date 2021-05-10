@@ -24,6 +24,7 @@ pub const StructMember = struct {
 pub const TypeKind = union(enum) {
     Unknown: void,
     Error: void,
+    Type: void,
     Void: void,
     Unreachable: void,
     Bool: void,

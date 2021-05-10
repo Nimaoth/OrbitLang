@@ -7,6 +7,7 @@ usingnamespace @import("ast.zig");
 usingnamespace @import("parser.zig");
 usingnamespace @import("error_handler.zig");
 usingnamespace @import("types.zig");
+usingnamespace @import("symbol.zig");
 usingnamespace @import("code_formatter.zig");
 usingnamespace @import("code_runner.zig");
 usingnamespace @import("dot_printer.zig");
@@ -34,6 +35,7 @@ pub const Compiler = struct {
     files: List(SourceFile),
 
     codeRunner: CodeRunner,
+    symbolTable: *SymbolTable,
 
     const Self = @This();
 
@@ -46,6 +48,7 @@ pub const Compiler = struct {
             .files = List(SourceFile).init(allocator),
 
             .codeRunner = try CodeRunner.init(allocator, errorReporter),
+            .symbolTable = try SymbolTable.init(null, allocator),
 
             .errorMsgBuffer = std.ArrayList(u8).init(allocator),
         };
@@ -55,6 +58,7 @@ pub const Compiler = struct {
         self.codeRunner.deinit();
         self.files.deinit();
         self.typeRegistry.deinit();
+        self.symbolTable.deinit();
         self.errorMsgBuffer.deinit();
     }
 
@@ -112,6 +116,7 @@ pub const Compiler = struct {
             .Identifier => try self.compileIdentifier(_ast, injected),
             .Int => try self.compileInt(_ast, injected),
             .Pipe => try self.compilePipe(_ast, injected),
+            .VarDecl => try self.compileVarDecl(_ast, injected),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
                 std.log.debug("compileAst({s}) Not implemented", .{@tagName(@as(UnionTagType, _ast.spec))});
@@ -264,17 +269,34 @@ pub const Compiler = struct {
 
         if (std.mem.eql(u8, id.name, "true")) {
             ast.typ = try self.typeRegistry.getBoolType(1);
+            return;
         } else if (std.mem.eql(u8, id.name, "false")) {
             ast.typ = try self.typeRegistry.getBoolType(1);
+            return;
+        }
+
+        if (self.symbolTable.get(id.name)) |sym| {
+            id.symbol = sym;
+
+            switch (sym.kind) {
+                .GlobalVariable => |*gv| {
+                    ast.typ = gv.typ;
+                },
+                //else => {
+                //    return error.NotImplemented;
+                //},
+            }
         } else {
-            ast.typ = try self.typeRegistry.getVoidType();
+            self.reportError(&ast.location, "Unknown symbol '{s}'", .{id.name});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
         }
     }
 
     fn compileInt(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
         const int = &ast.spec.Int;
         std.log.debug("compileInt() {}", .{int.value});
-        ast.typ = try self.typeRegistry.getIntType(8, false, null);
+        ast.typ = try self.typeRegistry.getIntType(16, false, null);
     }
 
     fn compilePipe(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
@@ -289,5 +311,71 @@ pub const Compiler = struct {
 
         try self.compileAst(pipe.right, pipe.left);
         ast.typ = pipe.right.typ;
+    }
+
+    fn compileVarDecl(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
+        const decl = &ast.spec.VarDecl;
+        std.log.debug("compileVarDecl()", .{});
+
+        if (injected) |_| {
+            self.reportError(&ast.location, "Can't inject expressions into variable declaration", .{});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        }
+
+        var varType: ?*const Type = null;
+        var varName: String = "";
+
+        switch (decl.pattern.spec) {
+            .Identifier => |*id| {
+                varName = id.name;
+            },
+            else => {
+                self.reportError(&decl.pattern.location, "Unsupported pattern in variable declaration.", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            },
+        }
+
+        if (decl.typ) |typ| {
+            try self.compileAst(typ, null);
+            if (self.wasError(ast, typ)) {
+                return;
+            }
+            if (!typ.typ.is(.Type)) {
+                self.reportError(&typ.location, "Expected type, found '{any}'", .{typ.typ});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+
+            // @todo: use this as the type
+        }
+
+        if (decl.value) |value| {
+            try self.compileAst(value, null);
+            if (self.wasError(ast, value)) {
+                return;
+            }
+            varType = value.typ;
+        }
+
+        std.debug.assert(varType != null);
+
+        std.log.info("{any}", .{varType});
+        var sym = self.symbolTable.define(varName) catch |err| switch (err) {
+            error.SymbolAlreadyExists => {
+                self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            },
+            else => return err,
+        };
+        sym.* = Symbol.init(SymbolKind{ .GlobalVariable = .{
+            .decl = ast,
+            .typ = varType.?,
+        } });
+
+        decl.symbol = sym;
+        ast.typ = try self.typeRegistry.getVoidType();
     }
 };
