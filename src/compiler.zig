@@ -1,6 +1,7 @@
 const std = @import("std");
 
 usingnamespace @import("common.zig");
+usingnamespace @import("job.zig");
 usingnamespace @import("location.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
@@ -11,73 +12,117 @@ usingnamespace @import("symbol.zig");
 usingnamespace @import("code_formatter.zig");
 usingnamespace @import("code_runner.zig");
 usingnamespace @import("dot_printer.zig");
+usingnamespace @import("ring_buffer.zig");
 
 pub const SourceFile = struct {
-    path: String,
+    path: StringBuf,
+    content: StringBuf,
 
     const Self = @This();
 
-    pub fn init(path: String) !Self {
+    pub fn init(path: StringBuf, content: StringBuf) Self {
         return Self{
             .path = path,
+            .content = content,
         };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.path.deinit();
+        self.content.deinit();
     }
 };
 
 pub const Compiler = struct {
     allocator: *std.mem.Allocator,
     constantsAllocator: std.heap.ArenaAllocator,
+    astAllocator: std.heap.ArenaAllocator,
 
     errorReporter: *ErrorReporter,
     errorMsgBuffer: std.ArrayList(u8),
 
     typeRegistry: TypeRegistry,
 
-    files: List(SourceFile),
+    files: List(*SourceFile),
 
     codeRunner: CodeRunner,
     globalScope: *SymbolTable,
     currentScope: *SymbolTable,
 
+    allFibers: List(*FiberContext),
+    fiberPool: List(*FiberContext),
+    unqueuedJobs: RingBuffer(*Job),
+    fiberQueue1: RingBuffer(*FiberContext),
+    fiberQueue2: RingBuffer(*FiberContext),
+    readyFibers: *RingBuffer(*FiberContext) = undefined,
+    waitingFibers: *RingBuffer(*FiberContext) = undefined,
+
     const Self = @This();
 
     pub fn init(allocator: *std.mem.Allocator, errorReporter: *ErrorReporter) !*Self {
-        var compiler = try allocator.create(Self);
+        var self = try allocator.create(Self);
         var globalScope = try allocator.create(SymbolTable);
 
-        compiler.* = Self{
+        self.* = Self{
             .allocator = allocator,
             .constantsAllocator = std.heap.ArenaAllocator.init(allocator),
+            .astAllocator = std.heap.ArenaAllocator.init(allocator),
 
             .errorReporter = errorReporter,
             .typeRegistry = try TypeRegistry.init(allocator),
 
-            .files = List(SourceFile).init(allocator),
+            .files = List(*SourceFile).init(allocator),
 
             .codeRunner = try CodeRunner.init(allocator, errorReporter),
             .globalScope = globalScope,
             .currentScope = globalScope,
 
+            .allFibers = List(*FiberContext).init(allocator),
+            .fiberPool = List(*FiberContext).init(allocator),
+            .unqueuedJobs = try RingBuffer(*Job).init(allocator),
+            .fiberQueue1 = try RingBuffer(*FiberContext).init(allocator),
+            .fiberQueue2 = try RingBuffer(*FiberContext).init(allocator),
+
             .errorMsgBuffer = std.ArrayList(u8).init(allocator),
         };
 
-        globalScope.* = SymbolTable.init(null, &compiler.constantsAllocator.allocator, allocator);
+        globalScope.* = SymbolTable.init(null, &self.constantsAllocator.allocator, allocator);
+        self.readyFibers = &self.fiberQueue1;
+        self.waitingFibers = &self.fiberQueue2;
 
-        return compiler;
+        return self;
     }
 
     pub fn deinit(self: *Self) void {
         self.codeRunner.deinit();
-        self.files.deinit();
         self.typeRegistry.deinit();
         self.currentScope.deinit();
-        self.errorMsgBuffer.deinit();
-        self.constantsAllocator.deinit();
         self.allocator.destroy(self.globalScope);
+        self.constantsAllocator.deinit();
+        self.astAllocator.deinit();
+
+        self.errorMsgBuffer.deinit();
+
+        // deinit fibers
+        for (self.allFibers.items) |fiber| {
+            fiber.deinit();
+        }
+        self.allFibers.deinit();
+        self.fiberPool.deinit();
+        self.fiberQueue1.deinit();
+        self.fiberQueue2.deinit();
+        self.unqueuedJobs.deinit();
+
+        for (self.files.items) |file| {
+            file.deinit();
+            self.allocator.destroy(file);
+        }
+        self.files.deinit();
+
         self.allocator.destroy(self);
     }
 
-    fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
+    pub fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
         self.errorMsgBuffer.resize(0) catch unreachable;
         std.fmt.format(self.errorMsgBuffer.writer(), format, args) catch {};
         self.errorReporter.report(self.errorMsgBuffer.items, location);
@@ -89,6 +134,104 @@ pub const Compiler = struct {
             return true;
         }
         return false;
+    }
+
+    pub fn allocateSourceFile(self: *Self, path: StringBuf, content: StringBuf) !*SourceFile {
+        var file = try self.allocator.create(SourceFile);
+        file.* = SourceFile.init(path, content);
+        try self.files.append(file);
+        return file;
+    }
+
+    fn swapReadyAndWaitingQueue(self: *Self) void {
+        const temp = self.readyFibers;
+        self.readyFibers = self.waitingFibers;
+        self.waitingFibers = temp;
+    }
+
+    fn getFreeFiber(self: *Self) !*FiberContext {
+        if (self.fiberPool.items.len == 0) {
+            const fiber = try FiberContext.init(self.allFibers.items.len, self.allocator);
+            try self.allFibers.append(fiber);
+            return fiber;
+        } else {
+            return self.fiberPool.pop();
+        }
+    }
+
+    pub fn allocateAndAddJob(self: *Self, _job: anytype) !*Job {
+        var job = try self.allocator.create(@TypeOf(_job));
+        job.* = _job;
+        try self.addJob(&job.job);
+        return &job.job;
+    }
+
+    pub fn addJob(self: *Self, job: *Job) !void {
+        try self.unqueuedJobs.push(job);
+        std.log.debug("[addJob] {}, {}, {}", .{ self.unqueuedJobs.len(), self.readyFibers.len(), self.waitingFibers.len() });
+    }
+
+    pub fn run(self: *Self) !void {
+        var madeProgress = false;
+
+        while (true) {
+            std.log.debug("[Main Loop] {}, {}, {}", .{ self.unqueuedJobs.len(), self.readyFibers.len(), self.waitingFibers.len() });
+            var fiber: ?*FiberContext = null;
+            if (self.readyFibers.len() == 0 and self.waitingFibers.len() > 0 and madeProgress) {
+                std.log.debug("Move jobs from waiting queue to ready queue.", .{});
+                self.swapReadyAndWaitingQueue();
+                madeProgress = false;
+            }
+            if (self.readyFibers.pop()) |f| {
+                std.log.debug("Take job from ready queue.", .{});
+                fiber = f;
+            } else if (self.unqueuedJobs.pop()) |job| {
+                std.log.debug("Start next job.", .{});
+                job.compiler = self;
+                fiber = try self.getFreeFiber();
+                fiber.?.job = job;
+                fiber.?.madeProgress = true;
+                fiber.?.wasCancelled = false;
+                fiber.?.done = false;
+                fiber.?.state = .Suspended;
+            } else {
+                std.log.debug("No more jobs left.", .{});
+                break;
+            }
+
+            if (fiber) |f| {
+                try f.step();
+                madeProgress = madeProgress or f.madeProgress;
+                if (f.done) {
+                    f.job.?.free(self.allocator);
+                    f.job = null;
+                    try self.fiberPool.append(f);
+                } else {
+                    try self.waitingFibers.push(f);
+                }
+            }
+        }
+
+        std.debug.assert(self.unqueuedJobs.len() == 0);
+        std.debug.assert(self.readyFibers.len() == 0);
+
+        // Cancel all waiting jobs.
+        std.log.debug("There are {} fibers still waiting.", .{self.waitingFibers.len()});
+        var it = self.waitingFibers.iterator();
+        while (it.next()) |f| {
+            std.log.debug("Cancelling job.", .{});
+            f.wasCancelled = true;
+            try f.step();
+
+            if (f.job) |j| {
+                j.free(self.allocator);
+            }
+        }
+
+        var it2 = self.unqueuedJobs.iterator();
+        while (it2.next()) |job| {
+            job.free(self.allocator);
+        }
     }
 
     pub fn compileAndRunFile(self: *Self, path: String) anyerror!void {
@@ -124,7 +267,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileAst(self: *Self, _ast: *Ast, injected: ?*Ast) anyerror!void {
+    pub fn compileAst(self: *Self, _ast: *Ast, injected: ?*Ast) anyerror!void {
         switch (_ast.spec) {
             .Block => try self.compileBlock(_ast, injected),
             .Call => try self.compileCall(_ast, injected),
@@ -193,6 +336,9 @@ pub const Compiler = struct {
 
         for (call.args.items) |arg| {
             try self.compileAst(arg, null);
+            if (self.wasError(ast, arg)) {
+                return;
+            }
         }
 
         ast.typ = try self.typeRegistry.getVoidType();
@@ -296,7 +442,7 @@ pub const Compiler = struct {
             return;
         }
 
-        if (self.currentScope.get(id.name)) |sym| {
+        if (try self.currentScope.get(id.name, &ast.location)) |sym| {
             id.symbol = sym;
 
             switch (sym.kind) {
@@ -383,7 +529,7 @@ pub const Compiler = struct {
 
         std.debug.assert(varType != null);
 
-        std.log.info("{any}", .{varType});
+        std.log.debug("{any}", .{varType});
         var sym = self.currentScope.define(varName) catch |err| switch (err) {
             error.SymbolAlreadyExists => {
                 self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
@@ -455,7 +601,7 @@ pub const Compiler = struct {
 
         std.debug.assert(varType != null);
 
-        std.log.info("{any}", .{varType});
+        std.log.debug("{any}", .{varType});
         var sym = self.currentScope.define(varName) catch |err| switch (err) {
             error.SymbolAlreadyExists => {
                 self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});

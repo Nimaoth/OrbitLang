@@ -9,6 +9,7 @@ usingnamespace @import("error_handler.zig");
 usingnamespace @import("code_formatter.zig");
 usingnamespace @import("dot_printer.zig");
 usingnamespace @import("compiler.zig");
+usingnamespace @import("job.zig");
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -66,12 +67,13 @@ pub fn compileFiles(files: [][]const u8, allocator: *std.mem.Allocator) anyerror
     defer compiler.deinit();
 
     if (files.len == 0) {
-        try compiler.compileAndRunFile("./examples/test.orb");
+        _ = try compiler.allocateAndAddJob(LoadFileJob{ .fileName = "./examples/test.orb" });
     } else {
         for (files) |file| {
-            try compiler.compileAndRunFile(file);
+            _ = try compiler.allocateAndAddJob(LoadFileJob{ .fileName = file });
         }
     }
+    try compiler.run();
 }
 
 pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!void {

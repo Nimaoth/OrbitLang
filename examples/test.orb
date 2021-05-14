@@ -1,17 +1,12 @@
-T :: {
-    T :: true
-    T
-}
-@print(T)
 
-2 -> @repeat() {
-    T :: 2
-    @print(T)
-    {
-        T :: 3
-        @print(T)
-    }
-    @print(T)
-}
 
-@print(T)
+
+N -> @repeat() @print(T)
+
+
+T :: V
+
+N :: 9999
+
+V :: 123
+

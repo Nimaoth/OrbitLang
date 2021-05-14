@@ -62,16 +62,16 @@ pub fn RingBufferAligned(comptime T: type, comptime alignment: ?u29) type {
             if (self.last > self.first) {
                 std.mem.copy(T, new_memory, self.items[self.first..self.last]);
                 self.allocator.free(self.items);
-                self.items = new_memory;
                 self.last -= self.first;
                 self.first = 0;
+                self.items = new_memory;
             } else if (self.last < self.first) {
                 std.mem.copy(T, new_memory, self.items[self.first..]);
                 std.mem.copy(T, new_memory[self.items.len - self.first ..], self.items[0..self.last]);
                 self.allocator.free(self.items);
-                self.items = new_memory;
                 self.last += self.items.len - self.first;
                 self.first = 0;
+                self.items = new_memory;
             } else {
                 self.last = 0;
                 self.first = 0;
@@ -118,6 +118,31 @@ pub fn RingBufferAligned(comptime T: type, comptime alignment: ?u29) type {
             self.first = (self.first + 1) % self.items.len;
             return result;
         }
+
+        pub fn at(self: *Self, index: usize) !T {
+            if (index >= self.len())
+                return error.IndexOutOfBounds;
+
+            return self.items[(self.first + index) % self.items.len];
+        }
+
+        pub const Iterator = struct {
+            ringBuffer: *Self,
+            index: usize,
+
+            pub fn next(self: *@This()) ?T {
+                if (self.index < self.ringBuffer.len()) {
+                    self.index += 1;
+                    return self.ringBuffer.at(self.index - 1) catch unreachable;
+                } else {
+                    return null;
+                }
+            }
+        };
+
+        pub fn iterator(self: *Self) Iterator {
+            return Iterator{ .ringBuffer = self, .index = 0 };
+        }
     };
 }
 
@@ -156,7 +181,7 @@ test "RingBuffer.len" {
     testing.expectEqual(@as(usize, 0), buff.len());
 }
 
-test "RingBuffer" {
+test "RingBuffer.push_and_pop" {
     const a = testing.allocator;
     var buff = try RingBuffer(usize).init(a);
     defer buff.deinit();
@@ -174,5 +199,55 @@ test "RingBuffer" {
     }
 
     testing.expectEqual(@as(usize, 0), buff.len());
+    testing.expectEqual(@as(?usize, null), buff.pop());
+}
+
+test "RingBuffer.iterator" {
+    const a = testing.allocator;
+    var buff = try RingBuffer(usize).init(a);
+    defer buff.deinit();
+
+    var i: usize = 0;
+    while (i < 100) : (i += 1) {
+        try buff.push(i);
+    }
+
+    var it = buff.iterator();
+    i = 0;
+    while (i < 100) : (i += 1) {
+        testing.expectEqual(@as(?usize, i), it.next());
+    }
+    testing.expectEqual(@as(?usize, null), it.next());
+}
+
+test "RingBuffer" {
+    const a = testing.allocator;
+    var buff = try RingBuffer(usize).init(a);
+    defer buff.deinit();
+
+    try buff.push(0);
+    testing.expectEqual(@as(usize, 1), buff.len());
+    testing.expectEqual(@as(?usize, 0), buff.pop());
+    try buff.push(1);
+    testing.expectEqual(@as(usize, 1), buff.len());
+    try buff.push(2);
+    testing.expectEqual(@as(usize, 2), buff.len());
+    testing.expectEqual(@as(?usize, 1), buff.pop());
+    try buff.push(3);
+    testing.expectEqual(@as(usize, 2), buff.len());
+    testing.expectEqual(@as(?usize, 2), buff.pop());
+    try buff.push(4);
+    try buff.push(5);
+    testing.expectEqual(@as(?usize, 3), buff.pop());
+    try buff.push(6);
+    try buff.push(7);
+    testing.expectEqual(@as(?usize, 4), buff.pop());
+    testing.expectEqual(@as(?usize, 5), buff.pop());
+    try buff.push(8);
+    testing.expectEqual(@as(?usize, 6), buff.pop());
+    testing.expectEqual(@as(?usize, 7), buff.pop());
+    try buff.push(9);
+    testing.expectEqual(@as(?usize, 8), buff.pop());
+    testing.expectEqual(@as(?usize, 9), buff.pop());
     testing.expectEqual(@as(?usize, null), buff.pop());
 }

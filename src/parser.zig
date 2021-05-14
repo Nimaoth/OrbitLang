@@ -7,7 +7,7 @@ usingnamespace @import("types.zig");
 usingnamespace @import("error_handler.zig");
 
 pub const Parser = struct {
-    allocator: std.heap.ArenaAllocator,
+    allocator: *std.mem.Allocator,
     lexer: Lexer,
     errorReporter: *ErrorReporter,
     errorMsgBuffer: std.ArrayList(u8),
@@ -28,7 +28,7 @@ pub const Parser = struct {
 
     pub fn init(lexer: Lexer, allocator: *std.mem.Allocator, errorReporter: *ErrorReporter) Self {
         return Self{
-            .allocator = std.heap.ArenaAllocator.init(allocator),
+            .allocator = allocator,
             .lexer = lexer,
             .errorReporter = errorReporter,
             .errorMsgBuffer = std.ArrayList(u8).init(allocator),
@@ -37,7 +37,6 @@ pub const Parser = struct {
 
     pub fn deinit(self: *Self) void {
         self.errorMsgBuffer.deinit();
-        self.allocator.deinit();
     }
 
     fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
@@ -47,7 +46,7 @@ pub const Parser = struct {
     }
 
     fn allocateAst(self: *Self, location: Location, spec: AstSpec) !*Ast {
-        var ast = try self.allocator.allocator.create(Ast);
+        var ast = try self.allocator.create(Ast);
         ast.* = Ast{
             .id = self.nextId,
             .location = location,
@@ -127,6 +126,7 @@ pub const Parser = struct {
     }
 
     pub fn parseTopLevelExpression(self: *Self) anyerror!?*Ast {
+        _ = self.skipNewline();
         if (try self.parseExpression(.{})) |expr| {
             _ = self.consume(.Newline, true);
             return expr;
@@ -271,7 +271,7 @@ pub const Parser = struct {
     fn parseCommaOrLess(self: *Self, ctx: Context) anyerror!?*Ast {
         var expr = (try self.parsePipeOrLess(ctx)) orelse return null;
         if (ctx.allowTuple and self.check(.Comma) != null) {
-            var args = std.ArrayList(*Ast).init(&self.allocator.allocator);
+            var args = std.ArrayList(*Ast).init(self.allocator);
             try args.append(expr);
             while (self.lexer.peek()) |next| {
                 switch (next.kind) {
@@ -341,7 +341,7 @@ pub const Parser = struct {
     pub fn parseBlock(self: *Self, ctx: Context) anyerror!?*Ast {
         const braceLeft = self.consume(.BraceLeft, true) orelse return null;
 
-        var body = std.ArrayList(*Ast).init(&self.allocator.allocator);
+        var body = std.ArrayList(*Ast).init(self.allocator);
         errdefer body.deinit();
 
         _ = self.skipNewline();
@@ -374,7 +374,7 @@ pub const Parser = struct {
     pub fn parseCall(self: *Self, func: *Ast, ctx: Context) anyerror!?*Ast {
         const parenLeft = self.consume(.ParenLeft, true) orelse return null;
 
-        var args = std.ArrayList(*Ast).init(&self.allocator.allocator);
+        var args = std.ArrayList(*Ast).init(self.allocator);
         errdefer args.deinit();
 
         var state: enum { AfterOpen, AfterExpr, AfterComma } = .AfterOpen;
@@ -449,7 +449,7 @@ pub const Parser = struct {
     pub fn parseLambda(self: *Self, ctx: Context) anyerror!?*Ast {
         const parenLeft = self.consume(.Bar, true) orelse return null;
 
-        var args = std.ArrayList(*Ast).init(&self.allocator.allocator);
+        var args = std.ArrayList(*Ast).init(self.allocator);
         errdefer args.deinit();
 
         var state: enum { AfterOpen, AfterExpr, AfterComma } = .AfterOpen;

@@ -2,8 +2,10 @@ const std = @import("std");
 
 usingnamespace @import("common.zig");
 usingnamespace @import("location.zig");
+usingnamespace @import("compiler.zig");
 usingnamespace @import("ast.zig");
 usingnamespace @import("types.zig");
+usingnamespace @import("job.zig");
 
 pub const SymbolKind = union(enum) {
     Constant: struct {
@@ -59,12 +61,48 @@ pub const SymbolTable = struct {
         return symbol;
     }
 
-    pub fn get(self: *Self, name: String) ?*Symbol {
+    pub fn get(self: *Self, name: String, location: *Location) !?*Symbol {
+        if (self.parent == null) {
+            // Top level symbol table.
+            while (true) {
+                if (self.symbols.get(name)) |symbol| {
+                    return symbol;
+                }
+
+                var ctx = Coroutine.current().getUserData() orelse unreachable;
+
+                var condition = struct {
+                    condition: FiberWaitCondition = .{
+                        .evalFn = eval,
+                        .reportErrorFn = reportError,
+                    },
+                    scope: *SymbolTable,
+                    name: String,
+                    location: *Location,
+
+                    pub fn eval(condition: *FiberWaitCondition) bool {
+                        const s = @fieldParentPtr(@This(), "condition", condition);
+                        return s.scope.symbols.contains(s.name);
+                    }
+
+                    pub fn reportError(condition: *FiberWaitCondition, compiler: *Compiler) void {
+                        const s = @fieldParentPtr(@This(), "condition", condition);
+                        compiler.reportError(s.location, "Symbol not found: {s}", .{s.name});
+                    }
+                }{
+                    .scope = self,
+                    .name = name,
+                    .location = location,
+                };
+                try ctx.waitUntil(&condition.condition);
+            }
+        }
+
         if (self.symbols.get(name)) |symbol| {
             return symbol;
         }
         if (self.parent) |p| {
-            return p.get(name);
+            return p.get(name, location);
         }
         return null;
     }
