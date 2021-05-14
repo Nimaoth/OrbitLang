@@ -6,6 +6,11 @@ usingnamespace @import("ast.zig");
 usingnamespace @import("types.zig");
 
 pub const SymbolKind = union(enum) {
+    Constant: struct {
+        decl: ?*const Ast = null,
+        typ: *const Type,
+        value: []u8,
+    },
     GlobalVariable: struct {
         decl: *const Ast,
         typ: *const Type,
@@ -32,23 +37,16 @@ pub const SymbolTable = struct {
 
     const Self = @This();
 
-    pub fn init(parent: ?*Self, allocator: *std.mem.Allocator) !*Self {
-        var result = try allocator.create(Self);
-        result.* = Self{
-            .allocator = allocator,
+    pub fn init(parent: ?*Self, symbolAllocator: *std.mem.Allocator, mapAllocator: *std.mem.Allocator) Self {
+        return Self{
+            .allocator = symbolAllocator,
             .parent = parent,
-            .symbols = std.StringHashMap(*Symbol).init(allocator),
+            .symbols = std.StringHashMap(*Symbol).init(mapAllocator),
         };
-        return result;
     }
 
     pub fn deinit(self: *Self) void {
-        var it = self.symbols.iterator();
-        while (it.next()) |kv| {
-            self.allocator.destroy(kv.value);
-        }
         self.symbols.deinit();
-        self.allocator.destroy(self);
     }
 
     pub fn define(self: *Self, name: String) !*Symbol {

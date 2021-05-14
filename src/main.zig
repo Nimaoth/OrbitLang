@@ -61,7 +61,7 @@ pub fn main() anyerror!void {
 }
 
 pub fn compileFiles(files: [][]const u8, allocator: *std.mem.Allocator) anyerror!void {
-    var errorReporter = ConsoleErrorReporter{};
+    var errorReporter = ConsoleErrorReporter.init(std.io.getStdErr().writer());
     var compiler = try Compiler.init(allocator, &errorReporter.reporter);
     defer compiler.deinit();
 
@@ -81,7 +81,7 @@ pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             defer allocator.free(fileContent);
 
             var lexer = try Lexer.init(file, fileContent);
-            var errorReporter = ConsoleErrorReporter{};
+            var errorReporter = ConsoleErrorReporter.init(std.io.getStdErr().writer());
             var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
             defer parser.deinit();
 
@@ -115,7 +115,7 @@ pub fn printGraph(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!
             defer allocator.free(fileContent);
 
             var lexer = try Lexer.init(file, fileContent);
-            var errorReporter = ConsoleErrorReporter{};
+            var errorReporter = ConsoleErrorReporter.init(std.io.getStdErr().writer());
             var parser = Parser.init(lexer, allocator, &errorReporter.reporter);
             defer parser.deinit();
 

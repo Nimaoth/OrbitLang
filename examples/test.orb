@@ -1,3 +1,17 @@
-a := 5
-a -> @repeat() @print(a)
+T :: {
+    T :: true
+    T
+}
+@print(T)
 
+2 -> @repeat() {
+    T :: 2
+    @print(T)
+    {
+        T :: 3
+        @print(T)
+    }
+    @print(T)
+}
+
+@print(T)

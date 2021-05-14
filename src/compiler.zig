@@ -26,6 +26,7 @@ pub const SourceFile = struct {
 
 pub const Compiler = struct {
     allocator: *std.mem.Allocator,
+    constantsAllocator: std.heap.ArenaAllocator,
 
     errorReporter: *ErrorReporter,
     errorMsgBuffer: std.ArrayList(u8),
@@ -35,31 +36,45 @@ pub const Compiler = struct {
     files: List(SourceFile),
 
     codeRunner: CodeRunner,
-    symbolTable: *SymbolTable,
+    globalScope: *SymbolTable,
+    currentScope: *SymbolTable,
 
     const Self = @This();
 
-    pub fn init(allocator: *std.mem.Allocator, errorReporter: *ErrorReporter) !Self {
-        return Self{
+    pub fn init(allocator: *std.mem.Allocator, errorReporter: *ErrorReporter) !*Self {
+        var compiler = try allocator.create(Self);
+        var globalScope = try allocator.create(SymbolTable);
+
+        compiler.* = Self{
             .allocator = allocator,
+            .constantsAllocator = std.heap.ArenaAllocator.init(allocator),
+
             .errorReporter = errorReporter,
             .typeRegistry = try TypeRegistry.init(allocator),
 
             .files = List(SourceFile).init(allocator),
 
             .codeRunner = try CodeRunner.init(allocator, errorReporter),
-            .symbolTable = try SymbolTable.init(null, allocator),
+            .globalScope = globalScope,
+            .currentScope = globalScope,
 
             .errorMsgBuffer = std.ArrayList(u8).init(allocator),
         };
+
+        globalScope.* = SymbolTable.init(null, &compiler.constantsAllocator.allocator, allocator);
+
+        return compiler;
     }
 
     pub fn deinit(self: *Self) void {
         self.codeRunner.deinit();
         self.files.deinit();
         self.typeRegistry.deinit();
-        self.symbolTable.deinit();
+        self.currentScope.deinit();
         self.errorMsgBuffer.deinit();
+        self.constantsAllocator.deinit();
+        self.allocator.destroy(self.globalScope);
+        self.allocator.destroy(self);
     }
 
     fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
@@ -116,6 +131,7 @@ pub const Compiler = struct {
             .Identifier => try self.compileIdentifier(_ast, injected),
             .Int => try self.compileInt(_ast, injected),
             .Pipe => try self.compilePipe(_ast, injected),
+            .ConstDecl => try self.compileConstDecl(_ast, injected),
             .VarDecl => try self.compileVarDecl(_ast, injected),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
@@ -130,6 +146,11 @@ pub const Compiler = struct {
         std.log.debug("compileBlock()", .{});
 
         ast.typ = try self.typeRegistry.getVoidType();
+
+        var subScope = SymbolTable.init(self.currentScope, &self.constantsAllocator.allocator, self.allocator);
+        defer subScope.deinit();
+        self.currentScope = &subScope;
+        defer self.currentScope = subScope.parent.?;
 
         for (block.body.items) |expr| {
             try self.compileAst(expr, null);
@@ -275,10 +296,13 @@ pub const Compiler = struct {
             return;
         }
 
-        if (self.symbolTable.get(id.name)) |sym| {
+        if (self.currentScope.get(id.name)) |sym| {
             id.symbol = sym;
 
             switch (sym.kind) {
+                .Constant => |*gv| {
+                    ast.typ = gv.typ;
+                },
                 .GlobalVariable => |*gv| {
                     ast.typ = gv.typ;
                 },
@@ -311,6 +335,76 @@ pub const Compiler = struct {
 
         try self.compileAst(pipe.right, pipe.left);
         ast.typ = pipe.right.typ;
+    }
+
+    fn compileConstDecl(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
+        const decl = &ast.spec.ConstDecl;
+        std.log.debug("compileConstDecl()", .{});
+
+        if (injected) |_| {
+            self.reportError(&ast.location, "Can't inject expressions into constant declaration", .{});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        }
+
+        var varType: ?*const Type = null;
+        var varName: String = "";
+
+        switch (decl.pattern.spec) {
+            .Identifier => |*id| {
+                varName = id.name;
+            },
+            else => {
+                self.reportError(&decl.pattern.location, "Unsupported pattern in variable declaration.", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            },
+        }
+
+        if (decl.typ) |typ| {
+            try self.compileAst(typ, null);
+            if (self.wasError(ast, typ)) {
+                return;
+            }
+            if (!typ.typ.is(.Type)) {
+                self.reportError(&typ.location, "Expected type, found '{any}'", .{typ.typ});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+
+            // @todo: use this as the type
+        }
+
+        try self.compileAst(decl.value, null);
+        if (self.wasError(ast, decl.value)) {
+            return;
+        }
+        varType = decl.value.typ;
+
+        std.debug.assert(varType != null);
+
+        std.log.info("{any}", .{varType});
+        var sym = self.currentScope.define(varName) catch |err| switch (err) {
+            error.SymbolAlreadyExists => {
+                self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            },
+            else => return err,
+        };
+
+        try self.codeRunner.runAst(decl.value);
+        var value = try self.constantsAllocator.allocator.alloc(u8, varType.?.size);
+        try self.codeRunner.popInto(value);
+
+        sym.* = Symbol.init(SymbolKind{ .Constant = .{
+            .decl = ast,
+            .typ = varType.?,
+            .value = value,
+        } });
+
+        decl.symbol = sym;
+        ast.typ = try self.typeRegistry.getVoidType();
     }
 
     fn compileVarDecl(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
@@ -362,7 +456,7 @@ pub const Compiler = struct {
         std.debug.assert(varType != null);
 
         std.log.info("{any}", .{varType});
-        var sym = self.symbolTable.define(varName) catch |err| switch (err) {
+        var sym = self.currentScope.define(varName) catch |err| switch (err) {
             error.SymbolAlreadyExists => {
                 self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
                 ast.typ = try self.typeRegistry.getErrorType();

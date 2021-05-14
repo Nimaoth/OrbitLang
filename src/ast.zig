@@ -22,16 +22,17 @@ pub const AstSpec = union(enum) {
         func: *Ast,
         args: std.ArrayList(*Ast),
     },
+    ConstDecl: struct {
+        pattern: *Ast,
+        typ: ?*Ast,
+        value: *Ast,
+        symbol: ?*Symbol = null,
+    },
     VarDecl: struct {
         pattern: *Ast,
         typ: ?*Ast,
         value: ?*Ast,
         symbol: ?*Symbol = null,
-    },
-    ConstDecl: struct {
-        pattern: *Ast,
-        typ: ?*Ast,
-        value: *Ast,
     },
     Float: struct {
         value: f128,

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 usingnamespace @import("common.zig");
+usingnamespace @import("location.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
 usingnamespace @import("parser.zig");
@@ -11,10 +12,12 @@ usingnamespace @import("dot_printer.zig");
 
 pub const CodeRunner = struct {
     allocator: *std.mem.Allocator,
-    globalVariables: std.heap.ArenaAllocator,
+
     errorReporter: *ErrorReporter,
+    errorMsgBuffer: std.ArrayList(u8),
 
     // execution
+    globalVariables: std.heap.ArenaAllocator,
     stack: List(u8),
     stackPointer: usize = 0,
 
@@ -28,12 +31,19 @@ pub const CodeRunner = struct {
             .errorReporter = errorReporter,
             .stack = stack,
             .globalVariables = std.heap.ArenaAllocator.init(allocator),
+            .errorMsgBuffer = std.ArrayList(u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.globalVariables.deinit();
+    }
+
+    fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
+        self.errorMsgBuffer.resize(0) catch unreachable;
+        std.fmt.format(self.errorMsgBuffer.writer(), format, args) catch {};
+        self.errorReporter.report(self.errorMsgBuffer.items, location);
     }
 
     fn push(self: *Self, value: anytype) !void {
@@ -58,7 +68,7 @@ pub const CodeRunner = struct {
         return value;
     }
 
-    fn popInto(self: *Self, dest: []u8) !void {
+    pub fn popInto(self: *Self, dest: []u8) !void {
         const size = dest.len;
         if (self.stackPointer < size) {
             return error.StackUnderflow;
@@ -78,20 +88,12 @@ pub const CodeRunner = struct {
         switch (ast.spec) {
             .Block => try self.runBlock(ast),
             .Call => try self.runCall(ast),
-            .Identifier => |*id| {
-                if (std.mem.eql(u8, id.name, "true")) {
-                    try self.push(true);
-                } else if (std.mem.eql(u8, id.name, "false")) {
-                    try self.push(false);
-                } else {
-                    std.debug.assert(id.symbol != null);
-                    try self.pushSlice(id.symbol.?.kind.GlobalVariable.value.?);
-                }
-            },
+            .Identifier => try self.runIdentifier(ast),
             .Int => |*int| {
                 try self.push(int.value);
             },
             .Pipe => try self.runPipe(ast),
+            .ConstDecl => {},
             .VarDecl => try self.runVarDecl(ast),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
@@ -195,6 +197,32 @@ pub const CodeRunner = struct {
             }
         }
         std.debug.print("\n", .{});
+    }
+
+    fn runIdentifier(self: *Self, ast: *Ast) anyerror!void {
+        //std.log.debug("runIdentifier()", .{});
+        const id = &ast.spec.Identifier;
+        if (std.mem.eql(u8, id.name, "true")) {
+            try self.push(true);
+        } else if (std.mem.eql(u8, id.name, "false")) {
+            try self.push(false);
+        } else {
+            std.debug.assert(id.symbol != null);
+            switch (id.symbol.?.kind) {
+                .Constant => |*constant| {
+                    try self.pushSlice(constant.value);
+                },
+                .GlobalVariable => |*gv| {
+                    if (gv.value == null) {
+                        // @todo: wait
+                        self.reportError(&ast.location, "Trying to evaluate an identifier at compile time but the value is not known yet.", .{});
+                        self.reportError(&gv.decl.location, "Variable defined here.", .{});
+                        return error.FailedToRunCode;
+                    }
+                    try self.pushSlice(gv.value.?);
+                },
+            }
+        }
     }
 
     fn runPipe(self: *Self, ast: *Ast) anyerror!void {
