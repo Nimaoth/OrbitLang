@@ -18,7 +18,7 @@ pub const UnknownType: *const Type = &Type{ .kind = .Unknown };
 
 pub const StructMember = struct {
     name: String,
-    typ: *Type,
+    typ: *const Type,
 };
 
 pub const TypeKind = union(enum) {
@@ -33,17 +33,21 @@ pub const TypeKind = union(enum) {
         signed: bool,
     },
     Pointer: struct {
-        child: *Type,
+        child: *const Type,
     },
     Slice: struct {
-        child: *Type,
+        child: *const Type,
     },
     Array: struct {
-        child: *Type,
+        child: *const Type,
         len: TypeSize,
     },
     Struct: struct {
         members: List(StructMember),
+    },
+    Function: struct {
+        params: List(*const Type),
+        returnType: *const Type,
     },
 };
 
@@ -94,13 +98,67 @@ pub const Type = struct {
     pub fn is(self: *const Self, tag: std.meta.Tag(TypeKind)) bool {
         return @as(std.meta.Tag(TypeKind), self.kind) == tag;
     }
+
+    pub fn format(
+        self: *const Self,
+        fmt: String,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self.kind) {
+            .Error => try writer.writeAll("<Error>"),
+            .Unknown => try writer.writeAll("<Unknown>"),
+            .Type => try writer.writeAll("type"),
+            .Void => try writer.writeAll("void"),
+            .Unreachable => try writer.writeAll("unreachable"),
+            .Bool => try std.fmt.format(writer, "b{}", .{self.size * 8}),
+            .Float => try std.fmt.format(writer, "f{}", .{self.size * 8}),
+            .Int => |*int| try std.fmt.format(writer, "{s}{}", .{
+                (if (int.signed) "i" else "u"),
+                self.size * 8,
+            }),
+            .Pointer => |*ptr| {
+                try std.fmt.format(writer, "^", .{});
+                try std.fmt.format(writer, "{}", .{ptr.child});
+            },
+            .Slice => |*slc| {
+                try std.fmt.format(writer, "[]", .{});
+                try std.fmt.format(writer, "{}", .{slc.child});
+            },
+            .Array => |*arr| {
+                switch (arr.len) {
+                    .Known => |len| try std.fmt.format(writer, "[{}]", .{len}),
+                    .Unknown => try std.fmt.format(writer, "[?]", .{}),
+                    .Generic => |name| try std.fmt.format(writer, "[{s}]", .{name}),
+                }
+                try std.fmt.format(writer, "{}", .{arr.child});
+            },
+            .Struct => |*str| {
+                try std.fmt.format(writer, "struct", .{});
+            },
+            .Function => |*func| {
+                try writer.writeAll("fn(");
+                var i: usize = 0;
+                while (i < func.params.items.len) : (i += 1) {
+                    if (i > 0) {
+                        try writer.writeAll(", ");
+                    }
+                    try std.fmt.format(writer, "{}", .{func.params.items[i]});
+                }
+                try std.fmt.format(writer, ") -> {}", .{func.returnType});
+            },
+
+            //else => try writer.writeAll("<Unknown>"),
+        }
+    }
 };
 
 pub const TypeRegistry = struct {
     allocator: std.heap.ArenaAllocator,
 
-    voidType: ?*Type = null,
     errorType: ?*Type = null,
+    typeType: ?*Type = null,
+    voidType: ?*Type = null,
 
     const Self = @This();
 
@@ -112,6 +170,61 @@ pub const TypeRegistry = struct {
 
     pub fn deinit(self: *Self) void {
         self.allocator.deinit();
+    }
+
+    pub fn allocTypeArray(self: *Self, size: usize) !List(*const Type) {
+        return List(*const Type).init(&self.allocator.allocator);
+    }
+
+    pub fn getErrorType(self: *Self) !*const Type {
+        if (self.errorType == null) {
+            self.errorType = try self.allocator.allocator.create(Type);
+            self.errorType.?.* = Type{
+                .flags = .{
+                    .ready = true,
+                    .size_set = true,
+                    .generic = false,
+                    .generic_set = true,
+                },
+                .size = 0,
+                .kind = .Error,
+            };
+        }
+        return self.errorType.?;
+    }
+
+    pub fn getTypeType(self: *Self) !*const Type {
+        if (self.typeType == null) {
+            self.typeType = try self.allocator.allocator.create(Type);
+            self.typeType.?.* = Type{
+                .flags = .{
+                    .ready = true,
+                    .size_set = true,
+                    .generic = false,
+                    .generic_set = true,
+                },
+                .size = 0,
+                .kind = .Type,
+            };
+        }
+        return self.typeType.?;
+    }
+
+    pub fn getVoidType(self: *Self) !*const Type {
+        if (self.voidType == null) {
+            self.voidType = try self.allocator.allocator.create(Type);
+            self.voidType.?.* = Type{
+                .flags = .{
+                    .ready = true,
+                    .size_set = true,
+                    .generic = false,
+                    .generic_set = true,
+                },
+                .size = 0,
+                .kind = .Void,
+            };
+        }
+        return self.voidType.?;
     }
 
     pub fn getBoolType(self: *Self, size: usize) !*Type {
@@ -147,37 +260,25 @@ pub const TypeRegistry = struct {
         return typ;
     }
 
-    pub fn getVoidType(self: *Self) !*const Type {
-        if (self.voidType == null) {
-            self.voidType = try self.allocator.allocator.create(Type);
-            self.voidType.?.* = Type{
-                .flags = .{
-                    .ready = true,
-                    .size_set = true,
-                    .generic = false,
-                    .generic_set = true,
-                },
-                .size = 0,
-                .kind = .Void,
-            };
-        }
-        return self.voidType.?;
-    }
-
-    pub fn getErrorType(self: *Self) !*const Type {
-        if (self.errorType == null) {
-            self.errorType = try self.allocator.allocator.create(Type);
-            self.errorType.?.* = Type{
-                .flags = .{
-                    .ready = true,
-                    .size_set = true,
-                    .generic = false,
-                    .generic_set = true,
-                },
-                .size = 0,
-                .kind = .Error,
-            };
-        }
-        return self.errorType.?;
+    pub fn getFunctionType(
+        self: *Self,
+        params: List(*const Type),
+        returnType: *const Type,
+    ) !*const Type {
+        var typ = try self.allocator.allocator.create(Type);
+        typ.* = Type{
+            .flags = .{
+                .ready = true,
+                .size_set = true,
+                .generic = false,
+                .generic_set = true,
+            },
+            .size = 8, // @todo: size of pointer
+            .kind = .{ .Function = .{
+                .params = params,
+                .returnType = returnType,
+            } },
+        };
+        return typ;
     }
 };

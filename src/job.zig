@@ -208,8 +208,8 @@ pub const LoadFileJob = struct {
         defer parser.deinit();
 
         while (try parser.parseTopLevelExpression()) |ast| {
-            const j = try compiler.allocateAndAddJob(CompileAstJob.init(ast));
-            std.log.debug("create job: {x}, {x}", .{ @ptrToInt(j), @ptrToInt(ast) });
+            _ = try compiler.allocateAndAddJob(CompileAstJob.init(ast));
+            try sourceFile.asts.append(ast);
         }
 
         std.log.debug("[LoadFileJob '{s}'] Done.", .{self.fileName});

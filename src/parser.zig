@@ -1,5 +1,6 @@
 const std = @import("std");
 
+usingnamespace @import("common.zig");
 usingnamespace @import("location.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
@@ -86,7 +87,21 @@ pub const Parser = struct {
                 .Plus,
                 .Minus,
                 => return true,
-                .Bar => return ctx.allowTuple,
+                .Bar => return ctx.allowLambda,
+                else => return false,
+            }
+        }
+        return false;
+    }
+
+    fn checkDelimiter(self: *Self, ctx: Context) bool {
+        if (self.lexer.peek()) |token| {
+            switch (token.kind) {
+                .Comma,
+                .ParenRight,
+                .BraceRight,
+                .BracketRight,
+                => return true,
                 else => return false,
             }
         }
@@ -156,7 +171,8 @@ pub const Parser = struct {
     }
 
     fn parseAssignmentOrDeclOrLess(self: *Self, ctx: Context) anyerror!?*Ast {
-        var expr = (try self.parseCommaOrLess(ctx)) orelse return null;
+        var subCtx = ctx.with("allowTuple", ctx.allowTuple);
+        var expr = (try self.parseCommaOrLess(subCtx)) orelse return null;
 
         if (self.lexer.peek()) |next| {
             switch (next.kind) {
@@ -164,7 +180,7 @@ pub const Parser = struct {
                 .Equal => {
                     self.skipToken();
                     _ = self.skipNewline();
-                    var value = (try self.parseCommaOrLess(ctx)) orelse return null;
+                    var value = (try self.parseCommaOrLess(subCtx)) orelse return null;
                     return try self.allocateAst(expr.location, AstSpec{ .Assignment = .{
                         .pattern = expr,
                         .value = value,
@@ -181,7 +197,7 @@ pub const Parser = struct {
                             // _ ::
                             .Colon => {
                                 self.skipToken();
-                                const value = (try self.parseCommaOrLess(ctx)) orelse return null;
+                                const value = (try self.parseCommaOrLess(subCtx)) orelse return null;
                                 return try self.allocateAst(expr.location, AstSpec{ .ConstDecl = .{
                                     .pattern = expr,
                                     .typ = null,
@@ -192,7 +208,7 @@ pub const Parser = struct {
                             // _ :=
                             .Equal => {
                                 self.skipToken();
-                                const value = (try self.parseCommaOrLess(ctx)) orelse return null;
+                                const value = (try self.parseCommaOrLess(subCtx)) orelse return null;
                                 return try self.allocateAst(expr.location, AstSpec{ .VarDecl = .{
                                     .pattern = expr,
                                     .typ = null,
@@ -202,7 +218,7 @@ pub const Parser = struct {
 
                             // _ : _
                             else => {
-                                const typ = (try self.parseCommaOrLess(ctx)) orelse return null;
+                                const typ = (try self.parseCommaOrLess(subCtx)) orelse return null;
 
                                 if (self.lexer.peek()) |next3| {
                                     switch (next3.kind) {
@@ -210,7 +226,7 @@ pub const Parser = struct {
                                         .Colon => {
                                             self.skipToken();
                                             _ = self.skipNewline();
-                                            const value = (try self.parseCommaOrLess(ctx)) orelse return null;
+                                            const value = (try self.parseCommaOrLess(subCtx)) orelse return null;
                                             return try self.allocateAst(expr.location, AstSpec{ .ConstDecl = .{
                                                 .pattern = expr,
                                                 .typ = typ,
@@ -222,7 +238,7 @@ pub const Parser = struct {
                                         .Equal => {
                                             self.skipToken();
                                             _ = self.skipNewline();
-                                            const value = (try self.parseCommaOrLess(ctx)) orelse return null;
+                                            const value = (try self.parseCommaOrLess(subCtx)) orelse return null;
                                             return try self.allocateAst(expr.location, AstSpec{ .VarDecl = .{
                                                 .pattern = expr,
                                                 .typ = typ,
@@ -240,8 +256,10 @@ pub const Parser = struct {
                                         },
 
                                         else => {
-                                            self.reportError(&next3.location, "Expected '=' or ':', found {}", .{next3.kind});
-                                            return null;
+                                            if (!self.checkDelimiter(ctx)) {
+                                                self.reportError(&next3.location, "Expected '=' or ':', found {}", .{next3.kind});
+                                                return null;
+                                            }
                                         },
                                     }
                                 }
@@ -255,7 +273,7 @@ pub const Parser = struct {
                             },
                         }
                     }
-                    var value = (try self.parseCommaOrLess(ctx)) orelse return null;
+                    var value = (try self.parseCommaOrLess(subCtx)) orelse return null;
                     return try self.allocateAst(expr.location, AstSpec{ .Assignment = .{
                         .pattern = expr,
                         .value = value,
@@ -535,9 +553,18 @@ pub const Parser = struct {
 
                 .ParenLeft => {
                     self.skipToken();
-                    const expr = self.parseExpression(ctx.with("allowLambda", true).with("allowTuple", true));
+                    _ = self.skipNewline();
+                    var endsInComma = false;
+                    var values = try self.parseValues(ctx, &endsInComma);
                     _ = self.consume(.ParenRight, true);
-                    return expr;
+                    if (endsInComma or values.items.len != 1) {
+                        return try self.allocateAst(token.location, AstSpec{ .Tuple = .{
+                            .values = values,
+                        } });
+                    }
+                    const result = values.items[0];
+                    values.deinit();
+                    return result;
                 },
 
                 .BraceLeft => return self.parseBlock(ctx),
@@ -562,6 +589,32 @@ pub const Parser = struct {
             }
         }
         return null;
+    }
+
+    pub fn parseValues(self: *Self, ctx: Context, endsInComma: *bool) anyerror!List(*Ast) {
+        var values = List(*Ast).init(self.allocator);
+        errdefer values.deinit();
+
+        while (self.lexer.peek()) |_| {
+            if (self.check(.ParenRight)) |_| {
+                break;
+            }
+
+            if (try self.parseExpression(Context{ .allowTuple = false, .allowLambda = false })) |ast| {
+                try values.append(ast);
+            }
+            endsInComma.* = false;
+
+            if (self.lexer.peek() == null or self.check(.ParenRight) != null) {
+                break;
+            }
+
+            _ = self.consume(.Comma, true);
+            _ = self.skipNewline();
+            endsInComma.* = true;
+        }
+
+        return values;
     }
 };
 

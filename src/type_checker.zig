@@ -59,6 +59,21 @@ pub const TypeChecker = struct {
         return false;
     }
 
+    pub fn pushEnv(self: *Self) anyerror!*SymbolTable {
+        var env = try self.compiler.constantsAllocator.allocator.create(SymbolTable);
+        env.* = SymbolTable.init(
+            self.currentScope,
+            &self.compiler.constantsAllocator.allocator,
+            &self.compiler.constantsAllocator.allocator,
+        );
+        self.currentScope = env;
+        return env;
+    }
+
+    pub fn popEnv(self: *Self) void {
+        self.currentScope = self.currentScope.parent.?;
+    }
+
     pub fn compileAst(self: *Self, _ast: *Ast, injected: ?*Ast) anyerror!void {
         switch (_ast.spec) {
             .Block => try self.compileBlock(_ast, injected),
@@ -82,14 +97,8 @@ pub const TypeChecker = struct {
 
         ast.typ = try self.typeRegistry.getVoidType();
 
-        var subScope = SymbolTable.init(
-            self.currentScope,
-            &self.compiler.constantsAllocator.allocator,
-            self.compiler.allocator,
-        );
-        defer subScope.deinit();
-        self.currentScope = &subScope;
-        defer self.currentScope = subScope.parent.?;
+        var subEnv = try self.pushEnv();
+        defer self.popEnv();
 
         for (block.body.items) |expr| {
             try self.compileAst(expr, null);
@@ -112,10 +121,14 @@ pub const TypeChecker = struct {
                         try self.compileCallThen(ast, injected);
                     } else if (std.mem.eql(u8, id.name, "@repeat")) {
                         try self.compileCallRepeat(ast, injected);
+                    } else if (std.mem.eql(u8, id.name, "@fn")) {
+                        try self.compileCallFn(ast, injected);
                     } else {
                         self.reportError(&ast.location, "Unknown compiler function '{s}'", .{id.name});
                         ast.typ = try self.typeRegistry.getErrorType();
                     }
+                } else {
+                    //
                 }
             },
             else => {
@@ -226,6 +239,101 @@ pub const TypeChecker = struct {
         ast.typ = try self.typeRegistry.getVoidType();
     }
 
+    fn compileCallFn(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
+        const call = &ast.spec.Call;
+        std.log.debug("compileCallFn()", .{});
+
+        if (injected != null) {
+            self.reportError(&ast.location, "Can't inject into function.", .{});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        }
+
+        var signature: ?*Ast = null;
+        var body: ?*Ast = null;
+
+        if (call.args.items.len > 2) {
+            self.reportError(&ast.location, "Too many arguments for function declaration.", .{});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        }
+
+        if (call.args.items.len == 1) {
+            var temp = call.args.items[0];
+            if (temp.is(.Pipe)) {
+                signature = temp;
+            } else {
+                body = temp;
+            }
+        } else if (call.args.items.len == 2) {
+            signature = call.args.items[0];
+            body = call.args.items[1];
+        }
+
+        if (body == null) {
+            self.reportError(&ast.location, "Extern function declarations not implemented yet.", .{});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        }
+
+        var returnType = try self.typeRegistry.getVoidType();
+        var paramTypes = try self.typeRegistry.allocTypeArray(0);
+
+        var argsScope = try self.pushEnv();
+        defer self.popEnv();
+
+        if (signature) |sig| {
+            if (!sig.is(.Pipe)) {
+                self.reportError(&sig.location, "Function parameters must be of this pattern: (arg1: T1, arg2: T2, ...) -> T0", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+
+            var paramsAst = sig.spec.Pipe.left;
+            var returnTypeAst = sig.spec.Pipe.right;
+
+            if (!paramsAst.is(.Tuple)) {
+                self.reportError(&sig.location, "Function parameters must be of this pattern: (arg1: T1, arg2: T2, ...) -> T0", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+
+            var paramsTuple = paramsAst.spec.Tuple;
+
+            // Compile parameters.
+            for (paramsTuple.values.items) |param| {
+                try self.compileAst(param, null);
+                if (self.wasError(ast, param)) {
+                    return;
+                }
+                if (!param.typ.is(.Type)) {
+                    self.reportError(&sig.location, "Function parameter type is not a type: {}", .{param.typ});
+                    ast.typ = try self.typeRegistry.getErrorType();
+                    return;
+                }
+                try self.codeRunner.runAst(param);
+                try paramTypes.append(try self.codeRunner.pop(*const Type));
+            }
+
+            // Compile return type.
+            try self.compileAst(returnTypeAst, null);
+            if (self.wasError(ast, returnTypeAst)) {
+                return;
+            }
+            if (!returnTypeAst.typ.is(.Type)) {
+                self.reportError(&sig.location, "Function return type is not a type: {}", .{returnTypeAst.typ});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+            try self.codeRunner.runAst(returnTypeAst);
+            returnType = try self.codeRunner.pop(*const Type);
+        }
+
+        ast.typ = try self.typeRegistry.getFunctionType(paramTypes, returnType);
+
+        try self.compileAst(body.?, null);
+    }
+
     fn compileIdentifier(self: *Self, ast: *Ast, injected: ?*Ast) anyerror!void {
         const id = &ast.spec.Identifier;
         std.log.debug("compileIdentifier(id) {s}", .{id.name});
@@ -248,6 +356,7 @@ pub const TypeChecker = struct {
                 .GlobalVariable => |*gv| {
                     ast.typ = gv.typ;
                 },
+                .Type => ast.typ = try self.typeRegistry.getTypeType(),
                 //else => {
                 //    return error.NotImplemented;
                 //},
@@ -385,6 +494,8 @@ pub const TypeChecker = struct {
             }
 
             // @todo: use this as the type
+            try self.codeRunner.runAst(typ);
+            varType = try self.codeRunner.pop(*const Type);
         }
 
         if (decl.value) |value| {

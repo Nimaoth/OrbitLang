@@ -1,15 +1,21 @@
+#a : bool = 0
+#a, b := 1, 2
+#(a, b := 1, 2)
+#@fn(a, b := 1, 2)
+#foo :: @fn(() -> void) { @print(5) }
 
-N -> @repeat() @print(T)
+@print(T)
 
-T :: V
-
-N :: {
-    T :: 3
-    T
+T :: {
+    Foo :: {
+        Bar
+    }
+    Foo
 }
 
-V :: {
+Bar :: {
+    X :: 6
     X
 }
 
-X :: 123
+

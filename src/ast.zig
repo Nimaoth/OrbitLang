@@ -61,8 +61,14 @@ pub const AstSpec = union(enum) {
 };
 
 pub const Ast = struct {
+    const Self = @This();
+
     id: usize,
     location: Location,
     typ: *const Type,
     spec: AstSpec,
+
+    pub fn is(self: *const Self, tag: std.meta.Tag(AstSpec)) bool {
+        return @as(std.meta.Tag(AstSpec), self.spec) == tag;
+    }
 };

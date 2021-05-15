@@ -1,2 +1,17 @@
 digraph Ast {
+    "Call #2\nvoid\n()" -> "Identifier #0\n<Unknown>\n@print"
+    "Call #2\nvoid\n()" -> "Identifier #1\ni128\nT"
+    "ConstDecl #10\nvoid\n::" -> "Identifier #3\n<Unknown>\nT"
+    "ConstDecl #10\nvoid\n::" -> "Block #9\ni128\n{}"
+    "Block #9\ni128\n{}" -> "ConstDecl #7\nvoid\n::"
+    "ConstDecl #7\nvoid\n::" -> "Identifier #4\n<Unknown>\nFoo"
+    "ConstDecl #7\nvoid\n::" -> "Block #6\ni128\n{}"
+    "Block #6\ni128\n{}" -> "Identifier #5\ni128\nBar"
+    "Block #9\ni128\n{}" -> "Identifier #8\ni128\nFoo"
+    "ConstDecl #17\nvoid\n::" -> "Identifier #11\n<Unknown>\nBar"
+    "ConstDecl #17\nvoid\n::" -> "Block #16\ni128\n{}"
+    "Block #16\ni128\n{}" -> "ConstDecl #14\nvoid\n::"
+    "ConstDecl #14\nvoid\n::" -> "Identifier #12\n<Unknown>\nX"
+    "ConstDecl #14\nvoid\n::" -> "Int #13\ni128\n6"
+    "Block #16\ni128\n{}" -> "Identifier #15\ni128\nX"
 }

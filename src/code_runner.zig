@@ -31,7 +31,7 @@ pub const CodeRunner = struct {
             .allocator = compiler.allocator,
             .errorReporter = compiler.errorReporter,
             .stack = stack,
-            .globalVariables = compiler.allocator,
+            .globalVariables = &compiler.constantsAllocator.allocator,
             .errorMsgBuffer = std.ArrayList(u8).init(&compiler.stackAllocator.allocator),
         };
     }
@@ -47,18 +47,18 @@ pub const CodeRunner = struct {
         self.errorReporter.report(self.errorMsgBuffer.items, location);
     }
 
-    fn push(self: *Self, value: anytype) !void {
+    pub fn push(self: *Self, value: anytype) !void {
         const size = @sizeOf(@TypeOf(value));
         std.mem.copy(u8, self.stack.items[self.stackPointer..], std.mem.asBytes(&value));
         self.stackPointer += size;
     }
 
-    fn pushSlice(self: *Self, value: []u8) !void {
+    pub fn pushSlice(self: *Self, value: []u8) !void {
         std.mem.copy(u8, self.stack.items[self.stackPointer..], value);
         self.stackPointer += value.len;
     }
 
-    fn pop(self: *Self, comptime T: type) !T {
+    pub fn pop(self: *Self, comptime T: type) !T {
         const size = @sizeOf(T);
         if (self.stackPointer < size) {
             return error.StackUnderflow;
@@ -78,7 +78,7 @@ pub const CodeRunner = struct {
         std.mem.copy(u8, dest, self.stack.items[self.stackPointer..(self.stackPointer + size)]);
     }
 
-    fn popBytes(self: *Self, size: usize) !void {
+    pub fn popBytes(self: *Self, size: usize) !void {
         if (self.stackPointer < size) {
             return error.StackUnderflow;
         }
@@ -221,6 +221,9 @@ pub const CodeRunner = struct {
                         return error.FailedToRunCode;
                     }
                     try self.pushSlice(gv.value.?);
+                },
+                .Type => |*typ| {
+                    try self.push(typ.typ);
                 },
             }
         }

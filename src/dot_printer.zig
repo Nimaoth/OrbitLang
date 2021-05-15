@@ -32,8 +32,7 @@ pub const DotPrinter = struct {
         const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
         try std.fmt.format(writer, "\"{s} #{}", .{ @tagName(@as(UnionTagType, ast.spec)), ast.id });
         if (self.printTypes) {
-            try std.fmt.format(writer, "\\n", .{});
-            try self.printType(writer, ast.typ);
+            try std.fmt.format(writer, "\\n{}", .{ast.typ});
         }
         try self.printNodeArg(writer, ast);
         try std.fmt.format(writer, "\"", .{});
@@ -147,43 +146,6 @@ pub const DotPrinter = struct {
             .Pipe => |*pipe| try std.fmt.format(writer, "\\n->", .{}),
             .String => |text| try std.fmt.format(writer, "\\n{s}", .{text.value}),
             .Tuple => |*tuple| try std.fmt.format(writer, "\\n(,)", .{}),
-
-            //else => try writer.writeAll("<Unknown>"),
-        }
-    }
-
-    fn printType(self: *Self, writer: anytype, typ: *const Type) anyerror!void {
-        switch (typ.kind) {
-            .Error => try std.fmt.format(writer, "<Error>", .{}),
-            .Unknown => try std.fmt.format(writer, "<Unknown>", .{}),
-            .Type => try std.fmt.format(writer, "type", .{}),
-            .Void => try std.fmt.format(writer, "void", .{}),
-            .Unreachable => try std.fmt.format(writer, "unreachable", .{}),
-            .Bool => try std.fmt.format(writer, "b{}", .{typ.size * 8}),
-            .Float => try std.fmt.format(writer, "f{}", .{typ.size * 8}),
-            .Int => |*int| try std.fmt.format(writer, "{s}{}", .{
-                (if (int.signed) "i" else "u"),
-                typ.size * 8,
-            }),
-            .Pointer => |*ptr| {
-                try std.fmt.format(writer, "^", .{});
-                try self.printType(writer, ptr.child);
-            },
-            .Slice => |*slc| {
-                try std.fmt.format(writer, "[]", .{});
-                try self.printType(writer, slc.child);
-            },
-            .Array => |*arr| {
-                switch (arr.len) {
-                    .Known => |len| try std.fmt.format(writer, "[{}]", .{len}),
-                    .Unknown => try std.fmt.format(writer, "[?]", .{}),
-                    .Generic => |name| try std.fmt.format(writer, "[{s}]", .{name}),
-                }
-                try self.printType(writer, arr.child);
-            },
-            .Struct => |*str| {
-                try std.fmt.format(writer, "struct", .{});
-            },
 
             //else => try writer.writeAll("<Unknown>"),
         }

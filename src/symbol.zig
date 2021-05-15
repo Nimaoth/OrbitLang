@@ -18,6 +18,9 @@ pub const SymbolKind = union(enum) {
         typ: *const Type,
         value: ?[]u8 = null,
     },
+    Type: struct {
+        typ: *const Type,
+    },
 };
 
 pub const Symbol = struct {
