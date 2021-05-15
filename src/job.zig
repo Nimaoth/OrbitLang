@@ -5,8 +5,10 @@ usingnamespace @import("compiler.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("parser.zig");
 usingnamespace @import("ast.zig");
+usingnamespace @import("type_checker.zig");
 usingnamespace @import("error_handler.zig");
 usingnamespace @import("code_formatter.zig");
+usingnamespace @import("code_runner.zig");
 usingnamespace @import("dot_printer.zig");
 usingnamespace @import("job.zig");
 
@@ -28,33 +30,38 @@ pub const FiberWaitCondition = struct {
 };
 
 pub const FiberContext = struct {
-    id: u64,
     madeProgress: bool = false,
     wasCancelled: bool = false,
     done: bool = false,
     state: enum { Running, Suspended } = .Suspended,
-    allocator: *std.mem.Allocator,
     coro: Coroutine,
 
+    compiler: *Compiler,
     job: ?*Job,
+    codeRunner: CodeRunner,
 
     const Self = @This();
 
-    pub fn init(id: u64, allocator: *std.mem.Allocator) !*Self {
-        var context = try allocator.create(Self);
-        const coro = try Coroutine.init(Self.run, context, allocator);
+    pub fn init(compiler: *Compiler) !*Self {
+        var context = try compiler.allocator.create(Self);
+        const coro = try Coroutine.init(
+            Self.run,
+            context,
+            compiler.allocator,
+        );
         context.* = Self{
-            .id = id,
-            .allocator = allocator,
+            .compiler = compiler,
             .coro = coro,
             .job = null,
+            .codeRunner = try CodeRunner.init(compiler),
         };
         return context;
     }
 
     pub fn deinit(self: *Self) void {
         self.coro.deinit();
-        self.allocator.destroy(self);
+        self.codeRunner.deinit();
+        self.compiler.allocator.destroy(self);
     }
 
     pub fn run() void {
@@ -62,7 +69,7 @@ pub const FiberContext = struct {
 
         while (true) {
             if (self.job) |job| {
-                std.log.debug("[{}, {}, {any}] Running next job.", .{ self.id, self.madeProgress, self.state });
+                std.log.debug("[{}, {any}] Running next job.", .{ self.madeProgress, self.state });
                 self.done = false;
                 job.run() catch |err| {
                     std.log.err("Job failed with error: {any}", .{err});
@@ -70,12 +77,12 @@ pub const FiberContext = struct {
                 self.madeProgress = true;
                 self.done = true;
 
-                std.log.debug("[{}, {}, {any}] done", .{ self.id, self.madeProgress, self.state });
+                std.log.debug("[{}, {any}] done", .{ self.madeProgress, self.state });
             }
             Coroutine.yield() catch unreachable;
             if (self.wasCancelled) break;
         }
-        std.log.debug("[{}, {}, {any}] Cancelled", .{ self.id, self.madeProgress, self.state });
+        std.log.debug("[{}, {any}] Cancelled", .{ self.madeProgress, self.state });
     }
 
     pub fn step(self: *Self) !void {
@@ -146,15 +153,18 @@ pub const CompileAstJob = struct {
         var ctx = Coroutine.current().getUserData() orelse unreachable;
         var compiler = job.compiler orelse unreachable;
 
+        var typeChecker = try TypeChecker.init(compiler, &ctx.codeRunner);
+        defer typeChecker.deinit();
+
         std.log.debug("CompileAstJob: {x}, {x}", .{ @ptrToInt(job), @ptrToInt(self.ast) });
-        try compiler.compileAst(self.ast, null);
+        try typeChecker.compileAst(self.ast, null);
         std.log.debug("After compileAst", .{});
 
         if (self.ast.typ.is(.Error) or self.ast.typ.is(.Unknown)) {
             const location = &self.ast.location;
             std.log.debug("{s}:{}:{}: Failed to compile top level expr", .{ location.file, location.line, location.column });
         } else {
-            try compiler.codeRunner.runAst(self.ast);
+            try ctx.codeRunner.runAst(self.ast);
         }
     }
 };

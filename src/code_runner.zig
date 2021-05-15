@@ -1,14 +1,15 @@
 const std = @import("std");
 
-usingnamespace @import("common.zig");
-usingnamespace @import("location.zig");
-usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
-usingnamespace @import("parser.zig");
-usingnamespace @import("error_handler.zig");
-usingnamespace @import("types.zig");
 usingnamespace @import("code_formatter.zig");
+usingnamespace @import("common.zig");
+usingnamespace @import("compiler.zig");
 usingnamespace @import("dot_printer.zig");
+usingnamespace @import("error_handler.zig");
+usingnamespace @import("lexer.zig");
+usingnamespace @import("location.zig");
+usingnamespace @import("parser.zig");
+usingnamespace @import("types.zig");
 
 pub const CodeRunner = struct {
     allocator: *std.mem.Allocator,
@@ -17,27 +18,27 @@ pub const CodeRunner = struct {
     errorMsgBuffer: std.ArrayList(u8),
 
     // execution
-    globalVariables: std.heap.ArenaAllocator,
+    globalVariables: *std.mem.Allocator,
     stack: List(u8),
     stackPointer: usize = 0,
 
     const Self = @This();
 
-    pub fn init(allocator: *std.mem.Allocator, errorReporter: *ErrorReporter) !Self {
-        var stack = List(u8).init(allocator);
+    pub fn init(compiler: *Compiler) !Self {
+        var stack = List(u8).init(&compiler.stackAllocator.allocator);
         try stack.resize(4 * 1024 * 1024);
         return Self{
-            .allocator = allocator,
-            .errorReporter = errorReporter,
+            .allocator = compiler.allocator,
+            .errorReporter = compiler.errorReporter,
             .stack = stack,
-            .globalVariables = std.heap.ArenaAllocator.init(allocator),
-            .errorMsgBuffer = std.ArrayList(u8).init(allocator),
+            .globalVariables = compiler.allocator,
+            .errorMsgBuffer = std.ArrayList(u8).init(&compiler.stackAllocator.allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
-        self.globalVariables.deinit();
+        self.errorMsgBuffer.deinit();
     }
 
     fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
@@ -240,7 +241,7 @@ pub const CodeRunner = struct {
         const globalVariable = &symbol.kind.GlobalVariable;
 
         // @todo: alignment
-        globalVariable.value = try self.globalVariables.allocator.alloc(u8, globalVariable.typ.size);
+        globalVariable.value = try self.globalVariables.alloc(u8, globalVariable.typ.size);
 
         if (decl.value) |value| {
             try self.runAst(value);
