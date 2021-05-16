@@ -4,11 +4,11 @@ const term = @import("ansi-term");
 usingnamespace @import("location.zig");
 
 pub const ErrorReporter = struct {
-    reportFn: fn (self: *@This(), message: []const u8, location: *const Location) void,
+    reportFn: fn (self: *@This(), message: []const u8, location: ?*const Location) void,
 
     const Self = @This();
 
-    pub fn report(self: *Self, message: []const u8, location: *const Location) void {
+    pub fn report(self: *Self, message: []const u8, location: ?*const Location) void {
         self.reportFn(self, message, location);
     }
 };
@@ -28,11 +28,14 @@ pub const ConsoleErrorReporter = struct {
         };
     }
 
-    pub fn report(reporter: *ErrorReporter, message: []const u8, location: *const Location) void {
+    pub fn report(reporter: *ErrorReporter, message: []const u8, location: ?*const Location) void {
         const self = @fieldParentPtr(Self, "reporter", reporter);
         const style = term.Style{ .foreground = .Red };
         term.updateStyle(self.stdOut, style, null) catch {};
-        std.fmt.format(self.stdOut, "{s}:{}:{}: {s}\n", .{ location.file, location.line, location.column, message }) catch {};
+        if (location) |loc| {
+            std.fmt.format(self.stdOut, "{s}:{}:{}: ", .{ loc.file, loc.line, loc.column }) catch {};
+        }
+        std.fmt.format(self.stdOut, "{s}\n", .{message}) catch {};
         term.updateStyle(self.stdOut, .{}, style) catch {};
 
         // @todo: Print the line containing the error.
@@ -48,7 +51,7 @@ pub const NullErrorReporter = struct {
 
     const Self = @This();
 
-    pub fn report(reporter: *ErrorReporter, message: []const u8, location: *const Location) void {
+    pub fn report(reporter: *ErrorReporter, message: []const u8, location: ?*const Location) void {
         const self = @fieldParentPtr(Self, "reporter", reporter);
         self.errors += 1;
     }

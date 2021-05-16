@@ -1,5 +1,6 @@
 const std = @import("std");
 
+usingnamespace @import("common.zig");
 usingnamespace @import("location.zig");
 usingnamespace @import("types.zig");
 usingnamespace @import("symbol.zig");
@@ -16,11 +17,11 @@ pub const AstSpec = union(enum) {
         value: *Ast,
     },
     Block: struct {
-        body: std.ArrayList(*Ast),
+        body: List(*Ast),
     },
     Call: struct {
         func: *Ast,
-        args: std.ArrayList(*Ast),
+        args: List(*Ast),
     },
     ConstDecl: struct {
         pattern: *Ast,
@@ -37,6 +38,10 @@ pub const AstSpec = union(enum) {
     Float: struct {
         value: f128,
     },
+    Function: struct {
+        args: List(*Ast),
+        body: *Ast,
+    },
     Identifier: struct {
         name: Name,
         symbol: ?*Symbol = null,
@@ -46,7 +51,7 @@ pub const AstSpec = union(enum) {
     },
     Lambda: struct {
         body: *Ast,
-        args: std.ArrayList(*Ast),
+        args: List(*Ast),
     },
     Pipe: struct {
         left: *Ast,
@@ -56,7 +61,7 @@ pub const AstSpec = union(enum) {
         value: []const u8,
     },
     Tuple: struct {
-        values: std.ArrayList(*Ast),
+        values: List(*Ast),
     },
 };
 

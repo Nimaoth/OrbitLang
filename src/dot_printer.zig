@@ -146,6 +146,7 @@ pub const DotPrinter = struct {
             .Pipe => |*pipe| try std.fmt.format(writer, "\\n->", .{}),
             .String => |text| try std.fmt.format(writer, "\\n{s}", .{text.value}),
             .Tuple => |*tuple| try std.fmt.format(writer, "\\n(,)", .{}),
+            .Function => |*func| try std.fmt.format(writer, "\\nfn", .{}),
 
             //else => try writer.writeAll("<Unknown>"),
         }

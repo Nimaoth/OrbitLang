@@ -8,10 +8,11 @@ usingnamespace @import("types.zig");
 usingnamespace @import("job.zig");
 
 pub const SymbolKind = union(enum) {
+    NotSet,
     Constant: struct {
         decl: ?*const Ast = null,
         typ: *const Type,
-        value: []u8,
+        value: ?[]u8, // Null if not set yet.
     },
     GlobalVariable: struct {
         decl: *const Ast,
@@ -24,14 +25,13 @@ pub const SymbolKind = union(enum) {
 };
 
 pub const Symbol = struct {
+    name: String,
     kind: SymbolKind,
 
     const Self = @This();
 
-    pub fn init(kind: SymbolKind) Self {
-        return Self{
-            .kind = kind,
-        };
+    pub fn is(self: *const Self, tag: std.meta.Tag(SymbolKind)) bool {
+        return @as(std.meta.Tag(SymbolKind), self.kind) == tag;
     }
 };
 
@@ -60,6 +60,10 @@ pub const SymbolTable = struct {
         }
 
         var symbol = try self.allocator.create(Symbol);
+        symbol.* = Symbol{
+            .name = name,
+            .kind = .NotSet,
+        };
         try self.symbols.put(name, symbol);
         return symbol;
     }
@@ -71,8 +75,6 @@ pub const SymbolTable = struct {
                 if (self.symbols.get(name)) |symbol| {
                     return symbol;
                 }
-
-                var ctx = Coroutine.current().getUserData() orelse unreachable;
 
                 var condition = struct {
                     condition: FiberWaitCondition = .{
@@ -97,6 +99,7 @@ pub const SymbolTable = struct {
                     .name = name,
                     .location = location,
                 };
+                var ctx = Coroutine.current().getUserData() orelse unreachable;
                 try ctx.waitUntil(&condition.condition);
             }
         }
@@ -108,5 +111,18 @@ pub const SymbolTable = struct {
             return p.get(name, location);
         }
         return null;
+    }
+
+    pub fn format(
+        self: *const Self,
+        fmt: String,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try std.fmt.format(writer, "scope", .{});
+        var it = self.symbols.iterator();
+        while (it.next()) |sym| {
+            try std.fmt.format(writer, "\n  {s} -> {any}", .{ sym.key, sym.value });
+        }
     }
 };

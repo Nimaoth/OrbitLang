@@ -9,7 +9,9 @@ usingnamespace @import("error_handler.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("location.zig");
 usingnamespace @import("parser.zig");
+usingnamespace @import("job.zig");
 usingnamespace @import("types.zig");
+usingnamespace @import("symbol.zig");
 
 pub const CodeRunner = struct {
     allocator: *std.mem.Allocator,
@@ -93,6 +95,7 @@ pub const CodeRunner = struct {
             .Int => |*int| {
                 try self.push(int.value);
             },
+            .Function => try self.runFunction(ast),
             .Pipe => try self.runPipe(ast),
             .ConstDecl => {},
             .VarDecl => try self.runVarDecl(ast),
@@ -122,17 +125,28 @@ pub const CodeRunner = struct {
                 if (id.name[0] == '@') {
                     if (std.mem.eql(u8, id.name, "@print")) {
                         try self.runCallPrint(ast);
+                        return;
                     } else if (std.mem.eql(u8, id.name, "@then")) {
                         try self.runCallThen(ast);
+                        return;
                     } else if (std.mem.eql(u8, id.name, "@repeat")) {
                         try self.runCallRepeat(ast);
-                    } else {
+                        return;
+                    } else if (id.name[0] == '@') {
+                        std.log.debug("runCall({s}) Not implemented", .{id.name});
                         return error.NotImplemented;
                     }
                 }
             },
-            else => return error.NotImplemented,
+            else => {},
         }
+
+        // regular call
+        try self.runAst(call.func);
+        const func = try self.pop(*Ast);
+        std.debug.assert(func.is(.Function));
+
+        try self.runAst(func.spec.Function.body);
     }
 
     fn runCallThen(self: *Self, ast: *Ast) anyerror!void {
@@ -175,6 +189,12 @@ pub const CodeRunner = struct {
         }
     }
 
+    fn runFunction(self: *Self, ast: *Ast) anyerror!void {
+        //std.log.debug("runFunction()", .{});
+        const call = &ast.spec.Function;
+        try self.push(ast);
+    }
+
     fn runCallPrint(self: *Self, ast: *Ast) anyerror!void {
         //std.log.debug("runCallPrint()", .{});
         const call = &ast.spec.Call;
@@ -209,9 +229,35 @@ pub const CodeRunner = struct {
             try self.push(false);
         } else {
             std.debug.assert(id.symbol != null);
+
             switch (id.symbol.?.kind) {
                 .Constant => |*constant| {
-                    try self.pushSlice(constant.value);
+                    // Wait until value is known.
+                    {
+                        var condition = struct {
+                            condition: FiberWaitCondition = .{
+                                .evalFn = eval,
+                                .reportErrorFn = reportError,
+                            },
+                            symbol: *Symbol,
+                            location: *Location,
+
+                            pub fn eval(condition: *FiberWaitCondition) bool {
+                                const s = @fieldParentPtr(@This(), "condition", condition);
+                                return s.symbol.kind.Constant.value != null;
+                            }
+
+                            pub fn reportError(condition: *FiberWaitCondition, compiler: *Compiler) void {
+                                const s = @fieldParentPtr(@This(), "condition", condition);
+                                compiler.reportError(s.location, "Value of symbol not known yet: {s}", .{s.symbol.name});
+                            }
+                        }{
+                            .symbol = id.symbol.?,
+                            .location = &ast.location,
+                        };
+                        try Coroutine.current().getUserData().?.waitUntil(&condition.condition);
+                    }
+                    try self.pushSlice(constant.value.?);
                 },
                 .GlobalVariable => |*gv| {
                     if (gv.value == null) {
@@ -225,6 +271,7 @@ pub const CodeRunner = struct {
                 .Type => |*typ| {
                     try self.push(typ.typ);
                 },
+                else => return error.NotImplemented,
             }
         }
     }
@@ -236,7 +283,7 @@ pub const CodeRunner = struct {
     }
 
     fn runVarDecl(self: *Self, ast: *Ast) anyerror!void {
-        std.log.debug("runVarDecl()", .{});
+        //std.log.debug("runVarDecl()", .{});
         const decl = &ast.spec.VarDecl;
         std.debug.assert(decl.symbol != null);
 

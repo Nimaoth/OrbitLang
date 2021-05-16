@@ -92,24 +92,24 @@ pub const Compiler = struct {
         self.readyFibers = &self.fiberQueue1;
         self.waitingFibers = &self.fiberQueue2;
 
-        (try globalScope.define("void")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getVoidType() } } };
+        (try globalScope.define("void")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getVoidType() } };
 
-        (try globalScope.define("bool")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } } };
-        (try globalScope.define("b8")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } } };
-        (try globalScope.define("b16")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(2) } } };
-        (try globalScope.define("b32")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(4) } } };
-        (try globalScope.define("b64")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(8) } } };
+        (try globalScope.define("bool")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } };
+        (try globalScope.define("b8")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } };
+        (try globalScope.define("b16")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(2) } };
+        (try globalScope.define("b32")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(4) } };
+        (try globalScope.define("b64")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(8) } };
 
-        (try globalScope.define("i8")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, true, null) } } };
-        (try globalScope.define("i16")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, true, null) } } };
-        (try globalScope.define("i32")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, true, null) } } };
-        (try globalScope.define("i64")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, true, null) } } };
-        (try globalScope.define("i128")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, true, null) } } };
-        (try globalScope.define("u8")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, false, null) } } };
-        (try globalScope.define("u16")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, false, null) } } };
-        (try globalScope.define("u32")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, false, null) } } };
-        (try globalScope.define("u64")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, false, null) } } };
-        (try globalScope.define("u128")).* = Symbol{ .kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, false, null) } } };
+        (try globalScope.define("i8")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, true, null) } };
+        (try globalScope.define("i16")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, true, null) } };
+        (try globalScope.define("i32")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, true, null) } };
+        (try globalScope.define("i64")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, true, null) } };
+        (try globalScope.define("i128")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, true, null) } };
+        (try globalScope.define("u8")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, false, null) } };
+        (try globalScope.define("u16")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, false, null) } };
+        (try globalScope.define("u32")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, false, null) } };
+        (try globalScope.define("u64")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, false, null) } };
+        (try globalScope.define("u128")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, false, null) } };
 
         return self;
     }
@@ -143,7 +143,7 @@ pub const Compiler = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
+    pub fn reportError(self: *Self, location: ?*const Location, comptime format: []const u8, args: anytype) void {
         self.errorMsgBuffer.resize(0) catch unreachable;
         std.fmt.format(self.errorMsgBuffer.writer(), format, args) catch {};
         self.errorReporter.report(self.errorMsgBuffer.items, location);

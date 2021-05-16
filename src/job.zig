@@ -72,7 +72,7 @@ pub const FiberContext = struct {
                 std.log.debug("[{}, {any}] Running next job.", .{ self.madeProgress, self.state });
                 self.done = false;
                 job.run() catch |err| {
-                    std.log.err("Job failed with error: {any}", .{err});
+                    self.compiler.reportError(null, "Job failed with error: {any}", .{err});
                 };
                 self.madeProgress = true;
                 self.done = true;
@@ -90,6 +90,9 @@ pub const FiberContext = struct {
     }
 
     pub fn waitUntil(self: *Self, condition: *FiberWaitCondition) !void {
+        if (condition.eval())
+            return;
+
         var ctx = Coroutine.current().getUserData() orelse unreachable;
         ctx.state = .Suspended;
         defer ctx.state = .Running;
@@ -157,7 +160,7 @@ pub const CompileAstJob = struct {
         defer typeChecker.deinit();
 
         std.log.debug("CompileAstJob: {x}, {x}", .{ @ptrToInt(job), @ptrToInt(self.ast) });
-        try typeChecker.compileAst(self.ast, null);
+        try typeChecker.compileAst(self.ast, .{});
         std.log.debug("After compileAst", .{});
 
         if (self.ast.typ.is(.Error) or self.ast.typ.is(.Unknown)) {

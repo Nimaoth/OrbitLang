@@ -2,20 +2,15 @@
 #a, b := 1, 2
 #(a, b := 1, 2)
 #@fn(a, b := 1, 2)
-#foo :: @fn(() -> void) { @print(5) }
+#func : @fn(() -> void) = foo
+#getFoo :: @fn(() -> void) {
+#    return foo
+#}
 
-@print(T)
-
-T :: {
-    Foo :: {
-        Bar
-    }
-    Foo
+foo()
+foo :: @fn(() -> bool) { bar() }
+bar :: @fn(() -> bool) {
+    @print(5)
 }
-
-Bar :: {
-    X :: 6
-    X
-}
-
+foo()
 

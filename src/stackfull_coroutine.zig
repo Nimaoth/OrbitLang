@@ -12,7 +12,7 @@ pub fn StackfullCoroutine(comptime T: type) type {
 
         // functions
         pub fn init(func: UserFunctionType, user_data: *T, allocator: *std.mem.Allocator) !Self {
-            var desc = mco_desc_init(Self.wrapper, 0);
+            var desc = mco_desc_init(Self.wrapper, 1024 * 1024 * 10);
             desc.malloc_cb = customAlloc;
             desc.free_cb = customFree;
 

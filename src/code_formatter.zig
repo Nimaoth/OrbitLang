@@ -86,6 +86,7 @@ pub const AstFormatter = struct {
             },
 
             .Float => |float| try std.fmt.format(writer, "{}", .{float.value}),
+            .Function => |float| try std.fmt.format(writer, "@fn", .{}),
 
             .Identifier => |id| try writer.writeAll(id.name),
 
