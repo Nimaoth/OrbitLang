@@ -9,6 +9,11 @@ usingnamespace @import("job.zig");
 
 pub const SymbolKind = union(enum) {
     NotSet,
+    Argument: struct {
+        decl: *const Ast,
+        typ: *const Type,
+        offset: usize,
+    },
     Constant: struct {
         decl: ?*const Ast = null,
         typ: *const Type,
@@ -54,9 +59,9 @@ pub const SymbolTable = struct {
         self.symbols.deinit();
     }
 
-    pub fn define(self: *Self, name: String) !*Symbol {
+    pub fn define(self: *Self, name: String) !?*Symbol {
         if (self.symbols.contains(name)) {
-            return error.SymbolAlreadyExists;
+            return null;
         }
 
         var symbol = try self.allocator.create(Symbol);

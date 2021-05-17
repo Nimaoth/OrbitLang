@@ -73,7 +73,10 @@ pub fn compileFiles(files: [][]const u8, allocator: *std.mem.Allocator) anyerror
             _ = try compiler.allocateAndAddJob(LoadFileJob{ .fileName = file });
         }
     }
-    try compiler.run();
+    compiler.run() catch |err| switch (err) {
+        error.CompilationFailed => std.os.exit(69),
+        else => return err,
+    };
 }
 
 pub fn parseFiles(files: [][]const u8, _allocator: *std.mem.Allocator) anyerror!void {

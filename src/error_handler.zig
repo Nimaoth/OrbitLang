@@ -5,10 +5,12 @@ usingnamespace @import("location.zig");
 
 pub const ErrorReporter = struct {
     reportFn: fn (self: *@This(), message: []const u8, location: ?*const Location) void,
+    errorCount: usize = 0,
 
     const Self = @This();
 
     pub fn report(self: *Self, message: []const u8, location: ?*const Location) void {
+        self.errorCount += 1;
         self.reportFn(self, message, location);
     }
 };

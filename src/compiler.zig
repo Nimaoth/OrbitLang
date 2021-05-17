@@ -92,24 +92,24 @@ pub const Compiler = struct {
         self.readyFibers = &self.fiberQueue1;
         self.waitingFibers = &self.fiberQueue2;
 
-        (try globalScope.define("void")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getVoidType() } };
+        if (try globalScope.define("void")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getVoidType() } };
 
-        (try globalScope.define("bool")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } };
-        (try globalScope.define("b8")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } };
-        (try globalScope.define("b16")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(2) } };
-        (try globalScope.define("b32")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(4) } };
-        (try globalScope.define("b64")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(8) } };
+        if (try globalScope.define("bool")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } };
+        if (try globalScope.define("b8")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(1) } };
+        if (try globalScope.define("b16")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(2) } };
+        if (try globalScope.define("b32")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(4) } };
+        if (try globalScope.define("b64")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getBoolType(8) } };
 
-        (try globalScope.define("i8")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, true, null) } };
-        (try globalScope.define("i16")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, true, null) } };
-        (try globalScope.define("i32")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, true, null) } };
-        (try globalScope.define("i64")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, true, null) } };
-        (try globalScope.define("i128")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, true, null) } };
-        (try globalScope.define("u8")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, false, null) } };
-        (try globalScope.define("u16")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, false, null) } };
-        (try globalScope.define("u32")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, false, null) } };
-        (try globalScope.define("u64")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, false, null) } };
-        (try globalScope.define("u128")).kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, false, null) } };
+        if (try globalScope.define("i8")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, true, null) } };
+        if (try globalScope.define("i16")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, true, null) } };
+        if (try globalScope.define("i32")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, true, null) } };
+        if (try globalScope.define("i64")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, true, null) } };
+        if (try globalScope.define("i128")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, true, null) } };
+        if (try globalScope.define("u8")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(1, false, null) } };
+        if (try globalScope.define("u16")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(2, false, null) } };
+        if (try globalScope.define("u32")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(4, false, null) } };
+        if (try globalScope.define("u64")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, false, null) } };
+        if (try globalScope.define("u128")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, false, null) } };
 
         return self;
     }
@@ -259,6 +259,11 @@ pub const Compiler = struct {
             for (file.asts.items) |ast| {
                 try dotPrinter.printGraph(graphFile.writer(), ast);
             }
+        }
+
+        if (self.errorReporter.errorCount > 0) {
+            self.reportError(null, "Compilation finished with {} errors.", .{self.errorReporter.errorCount});
+            return error.CompilationFailed;
         }
     }
 };

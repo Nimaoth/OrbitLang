@@ -7,10 +7,13 @@
 #    return foo
 #}
 
-foo()
-foo :: @fn(() -> bool) { bar() }
-bar :: @fn(() -> bool) {
-    @print(5)
+foo :: @fn((a: bool, b: bool) -> bool) {
+    @print(a, b)
+    a -> @then() @print(69)
+    b -> @then() @print(420)
 }
-foo()
+foo(false, false)
+foo(false, true)
+foo(true, false)
+foo(true, true)
 

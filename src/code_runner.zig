@@ -23,6 +23,7 @@ pub const CodeRunner = struct {
     globalVariables: *std.mem.Allocator,
     stack: List(u8),
     stackPointer: usize = 0,
+    basePointer: usize = 0,
 
     const Self = @This();
 
@@ -52,6 +53,12 @@ pub const CodeRunner = struct {
     pub fn push(self: *Self, value: anytype) !void {
         const size = @sizeOf(@TypeOf(value));
         std.mem.copy(u8, self.stack.items[self.stackPointer..], std.mem.asBytes(&value));
+        self.stackPointer += size;
+    }
+
+    pub fn pushArg(self: *Self, offset: usize, size: usize) !void {
+        const src = self.basePointer + offset;
+        std.mem.copy(u8, self.stack.items[self.stackPointer..], self.stack.items[src..(src + size)]);
         self.stackPointer += size;
     }
 
@@ -142,11 +149,28 @@ pub const CodeRunner = struct {
         }
 
         // regular call
+
+        // Get the function ast.
+        std.log.debug("Get the function.", .{});
         try self.runAst(call.func);
         const func = try self.pop(*Ast);
         std.debug.assert(func.is(.Function));
 
+        // Stack frame + arguments.
+        std.log.debug("Stack frame + arguments.", .{});
+        try self.push(self.basePointer);
+        self.basePointer = self.stackPointer;
+        const stackPointerOld = self.stackPointer;
+        for (call.args.items) |arg| {
+            try self.runAst(arg);
+        }
+
+        std.log.debug("Run the function.", .{});
         try self.runAst(func.spec.Function.body);
+
+        std.log.debug("After call, restore base pointer.", .{});
+        self.stackPointer = stackPointerOld;
+        self.basePointer = try self.pop(@TypeOf(self.basePointer));
     }
 
     fn runCallThen(self: *Self, ast: *Ast) anyerror!void {
@@ -231,6 +255,12 @@ pub const CodeRunner = struct {
             std.debug.assert(id.symbol != null);
 
             switch (id.symbol.?.kind) {
+                .Argument => |*arg| {
+                    const offset = arg.offset;
+                    std.log.debug("Loading argument at index {}", .{offset});
+                    //try self.pushSlice(gv.value.?);
+                    try self.pushArg(offset, arg.typ.size);
+                },
                 .Constant => |*constant| {
                     // Wait until value is known.
                     {

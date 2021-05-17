@@ -159,16 +159,39 @@ pub const TypeChecker = struct {
         }
 
         switch (call.func.typ.kind) {
-            .Function => |func| {
-                //
-                ast.typ = func.returnType;
-            },
+            .Function => |func| try self.compileRegularFunctionCall(ast, call.func.typ, ctx),
 
             else => {
                 self.reportError(&call.func.location, "Invalid type for call exression: {}", .{call.func.typ});
                 ast.typ = try self.typeRegistry.getErrorType();
                 return error.NotImplemented;
             },
+        }
+    }
+
+    fn compileRegularFunctionCall(self: *Self, ast: *Ast, funcType: *const Type, ctx: Context) anyerror!void {
+        var call = &ast.spec.Call;
+        var func = &funcType.kind.Function;
+        ast.typ = func.returnType;
+
+        // Check arguments.
+        if (call.args.items.len != func.params.items.len) {
+            self.reportError(&ast.location, "Wrong number of arguments. Expected {}, got {}.", .{ func.params.items.len, call.args.items.len });
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        }
+
+        var i: usize = 0;
+        while (i < call.args.items.len) : (i += 1) {
+            const paramType = func.params.items[i];
+            const arg = call.args.items[i];
+
+            try self.compileAst(arg, .{ .expected = paramType });
+            if (self.wasError(ast, arg)) {
+                return;
+            }
+
+            // @todo: Check if arg has correct type.
         }
     }
 
@@ -331,21 +354,52 @@ pub const TypeChecker = struct {
                 return;
             }
 
-            var paramsTuple = paramsAst.spec.Tuple;
+            var paramsTuple = &paramsAst.spec.Tuple;
 
             // Compile parameters.
+            var argOffset: usize = 0;
             for (paramsTuple.values.items) |param| {
-                try self.compileAst(param, .{});
-                if (self.wasError(ast, param)) {
-                    return;
-                }
-                if (!param.typ.is(.Type)) {
-                    self.reportError(&sig.location, "Function parameter type is not a type: {}", .{param.typ});
+                // Make sure param is a declaration.
+                if (!param.is(.VarDecl)) {
+                    self.reportError(&param.location, "Function parameter must be a declaration.", .{});
                     ast.typ = try self.typeRegistry.getErrorType();
                     return;
                 }
-                try self.codeRunner.runAst(param);
-                try paramTypes.append(try self.codeRunner.pop(*const Type));
+                var paramDecl = &param.spec.VarDecl;
+
+                // Make sure pattern is an identifier.
+                if (!paramDecl.pattern.is(.Identifier)) {
+                    self.reportError(&param.location, "Parameter pattern must be an identifier.", .{});
+                    ast.typ = try self.typeRegistry.getErrorType();
+                    return;
+                }
+                var paramName = &paramDecl.pattern.spec.Identifier;
+
+                // Get type of parameter.
+                try self.compileAst(paramDecl.typ.?, .{});
+                if (self.wasError(ast, paramDecl.typ.?)) {
+                    return;
+                }
+                if (!paramDecl.typ.?.typ.is(.Type)) {
+                    self.reportError(&param.location, "Function parameter type is not a type: {}", .{paramDecl.typ.?.typ});
+                    ast.typ = try self.typeRegistry.getErrorType();
+                    return;
+                }
+                try self.codeRunner.runAst(paramDecl.typ.?);
+                const paramType = try self.codeRunner.pop(*const Type);
+                try paramTypes.append(paramType);
+
+                if (try argsScope.define(paramName.name)) |sym| sym.kind = .{ .Argument = .{
+                    .decl = param,
+                    .typ = paramType,
+                    .offset = argOffset,
+                } } else {
+                    self.reportError(&sig.location, "Parameter with name '{s}' already exists.", .{paramName.name});
+                    ast.typ = try self.typeRegistry.getErrorType();
+                    return;
+                }
+
+                argOffset += paramType.size;
             }
 
             // Compile return type.
@@ -418,6 +472,9 @@ pub const TypeChecker = struct {
             }
 
             switch (sym.kind) {
+                .Argument => |*arg| {
+                    ast.typ = arg.typ;
+                },
                 .Constant => |*gv| {
                     ast.typ = gv.typ;
                 },
@@ -493,13 +550,10 @@ pub const TypeChecker = struct {
             varType = try self.codeRunner.pop(*const Type);
         }
 
-        var sym = self.currentScope.define(varName) catch |err| switch (err) {
-            error.SymbolAlreadyExists => {
-                self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
-                ast.typ = try self.typeRegistry.getErrorType();
-                return;
-            },
-            else => return err,
+        var sym = if (try self.currentScope.define(varName)) |sym| sym else {
+            self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
         };
 
         // Register type set listener.
@@ -597,13 +651,10 @@ pub const TypeChecker = struct {
 
         std.debug.assert(varType != null);
 
-        var sym = self.currentScope.define(varName) catch |err| switch (err) {
-            error.SymbolAlreadyExists => {
-                self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
-                ast.typ = try self.typeRegistry.getErrorType();
-                return;
-            },
-            else => return err,
+        var sym = if (try self.currentScope.define(varName)) |sym| sym else {
+            self.reportError(&decl.pattern.location, "A symbol with name '{s}' already exists in the current scope", .{varName});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
         };
         sym.kind = .{ .GlobalVariable = .{
             .decl = ast,
