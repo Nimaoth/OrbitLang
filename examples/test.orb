@@ -7,13 +7,35 @@
 #    return foo
 #}
 
-foo :: @fn((a: bool, b: bool) -> bool) {
-    @print(a, b)
-    a -> @then() @print(69)
-    b -> @then() @print(420)
-}
-foo(false, false)
-foo(false, true)
-foo(true, false)
-foo(true, true)
 
+
+#foo :: @fn((a: bool, b: bool) -> bool) {
+#    @print(a, b)
+#    a -> @then() @print(69)
+#    b -> @then() @print(420)
+#}
+#foo(false, false)
+#foo(false, true)
+#foo(true, false)
+#foo(true, true)
+#
+#bar(false, false)
+#bar(false, true)
+#bar(true, false)
+#bar(true, true)
+#
+not :: __not
+eql :: __eql
+sub :: __sub
+
+do(5)
+
+do :: @fn((n: i64,) -> void) {
+    @print(n)
+    not(eql(n, 0)) -> @then() {
+        do(sub(n, 1))
+    }
+}
+
+
+do(6)

@@ -281,4 +281,46 @@ pub const TypeRegistry = struct {
         };
         return typ;
     }
+
+    pub fn createFromNativeType(self: *Self, comptime T: type) !*const Type {
+        const typeInfo = @typeInfo(T);
+
+        var size: usize = 0;
+        var kind: TypeKind = .Unknown;
+
+        switch (typeInfo) {
+            .Void => return self.getVoidType(),
+            .Bool => return self.getBoolType(1),
+            .Int => |*info| return self.getIntType(info.bits / 8, if (info.signedness == .signed) true else false, null),
+            .Fn => |*info| {
+                var params = List(*const Type).init(&self.allocator.allocator);
+
+                inline for (info.args) |arg, i| {
+                    try params.append(try self.createFromNativeType(arg.arg_type.?));
+                }
+
+                size = 8;
+                kind = .{ .Function = .{
+                    .params = params,
+                    .returnType = if (info.return_type) |typ| try self.createFromNativeType(typ) else try self.getVoidType(),
+                } };
+            },
+
+            else => @compileError("Not implemented: createFromNativeType(" ++ @typeName(T) ++ ")"),
+        }
+
+        var typ = try self.allocator.allocator.create(Type);
+        typ.* = Type{
+            .flags = .{
+                .ready = true,
+                .size_set = true,
+                .generic = false,
+                .generic_set = true,
+            },
+            .size = size,
+            .kind = kind,
+        };
+
+        return typ;
+    }
 };

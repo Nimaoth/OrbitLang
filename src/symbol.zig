@@ -1,11 +1,12 @@
 const std = @import("std");
 
-usingnamespace @import("common.zig");
-usingnamespace @import("location.zig");
-usingnamespace @import("compiler.zig");
 usingnamespace @import("ast.zig");
-usingnamespace @import("types.zig");
+usingnamespace @import("common.zig");
+usingnamespace @import("compiler.zig");
 usingnamespace @import("job.zig");
+usingnamespace @import("location.zig");
+usingnamespace @import("native_function.zig");
+usingnamespace @import("types.zig");
 
 pub const SymbolKind = union(enum) {
     NotSet,
@@ -23,6 +24,10 @@ pub const SymbolKind = union(enum) {
         decl: *const Ast,
         typ: *const Type,
         value: ?[]u8 = null,
+    },
+    NativeFunction: struct {
+        typ: *const Type,
+        wrapper: *NativeFunctionWrapper,
     },
     Type: struct {
         typ: *const Type,

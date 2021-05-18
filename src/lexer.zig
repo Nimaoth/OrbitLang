@@ -310,7 +310,6 @@ pub const Lexer = struct {
             } else {
                 token.kind = .Bang;
             },
-            '_' => token.kind = .Underscore,
             '"' => if (self.parseString('"')) |text| {
                 token.kind = .String;
                 token.data = TokenData{ .text = text };

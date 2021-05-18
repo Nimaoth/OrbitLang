@@ -481,6 +481,9 @@ pub const TypeChecker = struct {
                 .GlobalVariable => |*gv| {
                     ast.typ = gv.typ;
                 },
+                .NativeFunction => |*nf| {
+                    ast.typ = nf.typ;
+                },
                 .Type => ast.typ = try self.typeRegistry.getTypeType(),
                 else => return error.NotImplemented,
             }
@@ -494,7 +497,15 @@ pub const TypeChecker = struct {
     fn compileInt(self: *Self, ast: *Ast, ctx: Context) anyerror!void {
         const int = &ast.spec.Int;
         //std.log.debug("compileInt() {}", .{int.value});
-        ast.typ = try self.typeRegistry.getIntType(16, false, null);
+        if (ctx.expected) |expected| switch (expected.kind) {
+            .Int => {
+                // @todo: Make sure the value fits in this size.
+                ast.typ = expected;
+            },
+            else => ast.typ = try self.typeRegistry.getIntType(8, false, null),
+        } else {
+            ast.typ = try self.typeRegistry.getIntType(8, false, null);
+        }
     }
 
     fn compilePipe(self: *Self, ast: *Ast, ctx: Context) anyerror!void {

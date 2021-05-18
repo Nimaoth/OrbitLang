@@ -1,18 +1,20 @@
 const std = @import("std");
+const term = @import("ansi-term");
 
-usingnamespace @import("common.zig");
-usingnamespace @import("job.zig");
-usingnamespace @import("location.zig");
-usingnamespace @import("lexer.zig");
 usingnamespace @import("ast.zig");
-usingnamespace @import("parser.zig");
-usingnamespace @import("error_handler.zig");
-usingnamespace @import("types.zig");
-usingnamespace @import("symbol.zig");
 usingnamespace @import("code_formatter.zig");
 usingnamespace @import("code_runner.zig");
+usingnamespace @import("common.zig");
 usingnamespace @import("dot_printer.zig");
+usingnamespace @import("error_handler.zig");
+usingnamespace @import("job.zig");
+usingnamespace @import("lexer.zig");
+usingnamespace @import("location.zig");
+usingnamespace @import("native_function.zig");
+usingnamespace @import("parser.zig");
 usingnamespace @import("ring_buffer.zig");
+usingnamespace @import("symbol.zig");
+usingnamespace @import("types.zig");
 
 pub const SourceFile = struct {
     path: StringBuf,
@@ -111,7 +113,57 @@ pub const Compiler = struct {
         if (try globalScope.define("u64")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(8, false, null) } };
         if (try globalScope.define("u128")) |sym| sym.kind = .{ .Type = .{ .typ = try self.typeRegistry.getIntType(16, false, null) } };
 
+        if (try globalScope.define("bar")) |sym| sym.kind = .{ .NativeFunction = .{
+            .typ = try self.typeRegistry.createFromNativeType(@TypeOf(bar)),
+            .wrapper = try NativeFunctionWrapper.init(bar, &self.constantsAllocator.allocator),
+        } };
+        if (try globalScope.define("__add")) |sym| sym.kind = .{ .NativeFunction = .{
+            .typ = try self.typeRegistry.createFromNativeType(@TypeOf(add)),
+            .wrapper = try NativeFunctionWrapper.init(add, &self.constantsAllocator.allocator),
+        } };
+        if (try globalScope.define("__sub")) |sym| sym.kind = .{ .NativeFunction = .{
+            .typ = try self.typeRegistry.createFromNativeType(@TypeOf(sub)),
+            .wrapper = try NativeFunctionWrapper.init(sub, &self.constantsAllocator.allocator),
+        } };
+        if (try globalScope.define("__eql")) |sym| sym.kind = .{ .NativeFunction = .{
+            .typ = try self.typeRegistry.createFromNativeType(@TypeOf(eql)),
+            .wrapper = try NativeFunctionWrapper.init(eql, &self.constantsAllocator.allocator),
+        } };
+        if (try globalScope.define("__not")) |sym| sym.kind = .{ .NativeFunction = .{
+            .typ = try self.typeRegistry.createFromNativeType(@TypeOf(not)),
+            .wrapper = try NativeFunctionWrapper.init(not, &self.constantsAllocator.allocator),
+        } };
+
         return self;
+    }
+
+    fn bar(a: bool, b: bool) void {
+        var stdOut = std.io.getStdOut().writer();
+        const style = term.Style{ .foreground = .{ .RGB = .{ .r = 0x7a, .g = 0xd6, .b = 0x9a } } };
+        term.updateStyle(stdOut, style, null) catch {};
+        defer term.updateStyle(stdOut, .{}, style) catch {};
+
+        std.fmt.format(stdOut, "bar({}, {})\n", .{ a, b }) catch unreachable;
+    }
+
+    fn add(a: i64, b: i64) i64 {
+        std.log.debug("add({}, {})", .{ a, b });
+        return a + b;
+    }
+
+    fn sub(a: i64, b: i64) i64 {
+        std.log.debug("sub({}, {})", .{ a, b });
+        return a - b;
+    }
+
+    fn eql(a: i64, b: i64) bool {
+        std.log.debug("eql({}, {})", .{ a, b });
+        return a == b;
+    }
+
+    fn not(a: bool) bool {
+        std.log.debug("not({})", .{a});
+        return !a;
     }
 
     pub fn deinit(self: *Self) void {

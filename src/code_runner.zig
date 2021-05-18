@@ -1,4 +1,5 @@
 const std = @import("std");
+const term = @import("ansi-term");
 
 usingnamespace @import("ast.zig");
 usingnamespace @import("code_formatter.zig");
@@ -6,29 +7,62 @@ usingnamespace @import("common.zig");
 usingnamespace @import("compiler.zig");
 usingnamespace @import("dot_printer.zig");
 usingnamespace @import("error_handler.zig");
+usingnamespace @import("job.zig");
 usingnamespace @import("lexer.zig");
 usingnamespace @import("location.zig");
+usingnamespace @import("native_function.zig");
 usingnamespace @import("parser.zig");
-usingnamespace @import("job.zig");
-usingnamespace @import("types.zig");
 usingnamespace @import("symbol.zig");
+usingnamespace @import("types.zig");
+
+const DEBUG_LOG_STACK = false;
+
+const NativeOrAstFunction = struct {
+    ptr: usize,
+
+    const Self = @This();
+    const mask: usize = 1 << 63;
+
+    pub fn get(self: Self) union(enum) {
+        Ast: *Ast,
+        Native: *NativeFunctionWrapper,
+    } {
+        // Check if leftmost bit is set.
+        if ((self.ptr & mask) != 0) {
+            return .{ .Ast = @intToPtr(*Ast, self.ptr & (~mask)) };
+        } else {
+            return .{ .Native = @intToPtr(*NativeFunctionWrapper, self.ptr) };
+        }
+    }
+
+    pub fn fromAst(ast: *Ast) Self {
+        std.debug.assert(@ptrToInt(ast) & mask == 0);
+        return .{ .ptr = @ptrToInt(ast) | mask };
+    }
+
+    pub fn fromNative(nfw: *NativeFunctionWrapper) Self {
+        std.debug.assert(@ptrToInt(nfw) & mask == 0);
+        return .{ .ptr = @ptrToInt(nfw) };
+    }
+};
 
 pub const CodeRunner = struct {
     allocator: *std.mem.Allocator,
 
     errorReporter: *ErrorReporter,
     errorMsgBuffer: std.ArrayList(u8),
+    printBuffer: std.ArrayList(u8),
 
     // execution
     globalVariables: *std.mem.Allocator,
-    stack: List(u8),
+    stack: std.ArrayListAligned(u8, 8),
     stackPointer: usize = 0,
     basePointer: usize = 0,
 
     const Self = @This();
 
     pub fn init(compiler: *Compiler) !Self {
-        var stack = List(u8).init(&compiler.stackAllocator.allocator);
+        var stack = std.ArrayListAligned(u8, 8).init(&compiler.stackAllocator.allocator);
         try stack.resize(4 * 1024 * 1024);
         return Self{
             .allocator = compiler.allocator,
@@ -36,18 +70,39 @@ pub const CodeRunner = struct {
             .stack = stack,
             .globalVariables = &compiler.constantsAllocator.allocator,
             .errorMsgBuffer = std.ArrayList(u8).init(&compiler.stackAllocator.allocator),
+            .printBuffer = std.ArrayList(u8).init(&compiler.stackAllocator.allocator),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.errorMsgBuffer.deinit();
+        self.printBuffer.deinit();
     }
 
-    fn reportError(self: *Self, location: *const Location, comptime format: []const u8, args: anytype) void {
+    fn reportError(self: *Self, location: ?*const Location, comptime format: []const u8, args: anytype) void {
         self.errorMsgBuffer.resize(0) catch unreachable;
         std.fmt.format(self.errorMsgBuffer.writer(), format, args) catch {};
         self.errorReporter.report(self.errorMsgBuffer.items, location);
+    }
+
+    pub fn printStack(self: *Self) !void {
+        if (DEBUG_LOG_STACK) {
+            var stdOut = std.io.getStdOut().writer();
+            const style = term.Style{ .foreground = .{ .RGB = .{ .r = 0xd6, .g = 0x9a, .b = 0x9a } } };
+            term.updateStyle(stdOut, style, null) catch {};
+            defer term.updateStyle(stdOut, .{}, style) catch {};
+
+            var i: usize = 0;
+            try stdOut.writeAll("stack: [");
+            while (i < self.stackPointer) : (i += 8) {
+                if (i > 0) {
+                    try stdOut.writeAll(", ");
+                }
+                try std.fmt.format(stdOut, "{}", .{bytesAsValue(u64, self.stack.items[i..(i + 8)])});
+            }
+            try stdOut.writeAll("]\n");
+        }
     }
 
     pub fn push(self: *Self, value: anytype) !void {
@@ -78,6 +133,11 @@ pub const CodeRunner = struct {
         return value;
     }
 
+    pub fn copyArgInto(self: *Self, offset: usize, dest: []u8) !void {
+        const src = self.basePointer + offset;
+        std.mem.copy(u8, dest, self.stack.items[src..(src + dest.len)]);
+    }
+
     pub fn popInto(self: *Self, dest: []u8) !void {
         const size = dest.len;
         if (self.stackPointer < size) {
@@ -95,13 +155,15 @@ pub const CodeRunner = struct {
     }
 
     pub fn runAst(self: *Self, ast: *Ast) anyerror!void {
+        //if (self.stackPointer > 50) {
+        //    self.reportError(null, "Max stack size reached", .{});
+        //    return error.StackOverflow;
+        //}
         switch (ast.spec) {
             .Block => try self.runBlock(ast),
             .Call => try self.runCall(ast),
             .Identifier => try self.runIdentifier(ast),
-            .Int => |*int| {
-                try self.push(int.value);
-            },
+            .Int => try self.runInt(ast),
             .Function => try self.runFunction(ast),
             .Pipe => try self.runPipe(ast),
             .ConstDecl => {},
@@ -153,24 +215,46 @@ pub const CodeRunner = struct {
         // Get the function ast.
         std.log.debug("Get the function.", .{});
         try self.runAst(call.func);
-        const func = try self.pop(*Ast);
-        std.debug.assert(func.is(.Function));
+        const nativeOrAstFunction = try self.pop(NativeOrAstFunction);
 
-        // Stack frame + arguments.
-        std.log.debug("Stack frame + arguments.", .{});
+        // Stack frame
+        std.log.debug("Stack frame.", .{});
         try self.push(self.basePointer);
-        self.basePointer = self.stackPointer;
-        const stackPointerOld = self.stackPointer;
-        for (call.args.items) |arg| {
+        const newBasePointer = self.stackPointer;
+
+        // Arguments.
+        std.log.debug("Arguments.", .{});
+        for (call.args.items) |arg, i| {
+            std.log.debug("Running argument {} at {}", .{ i, self.stackPointer });
             try self.runAst(arg);
         }
 
-        std.log.debug("Run the function.", .{});
-        try self.runAst(func.spec.Function.body);
+        // Finish stack frame.
+        std.log.debug("Base pointer: {}", .{self.basePointer});
+        self.basePointer = newBasePointer;
+
+        const returnType = call.func.typ.kind.Function.returnType;
+
+        switch (nativeOrAstFunction.get()) {
+            .Ast => |func| {
+                std.debug.assert(func.is(.Function));
+                try self.runAst(func.spec.Function.body);
+            },
+            .Native => |func| {
+                try func.invoke(self, call.func.typ);
+            },
+        }
+        var returnValuePointer = self.stackPointer - returnType.size;
 
         std.log.debug("After call, restore base pointer.", .{});
-        self.stackPointer = stackPointerOld;
+        self.stackPointer = newBasePointer;
         self.basePointer = try self.pop(@TypeOf(self.basePointer));
+        std.log.debug("Resetting base pointer: {}", .{self.basePointer});
+
+        if (returnType.size > 0) {
+            std.log.debug("Copying return value from {} to {}", .{ returnValuePointer, self.stackPointer });
+            try self.pushSlice(self.stack.items[returnValuePointer..(returnValuePointer + returnType.size)]);
+        }
     }
 
     fn runCallThen(self: *Self, ast: *Ast) anyerror!void {
@@ -216,37 +300,76 @@ pub const CodeRunner = struct {
     fn runFunction(self: *Self, ast: *Ast) anyerror!void {
         //std.log.debug("runFunction()", .{});
         const call = &ast.spec.Function;
-        try self.push(ast);
+        std.log.info("Push ast function. {}", .{ast});
+        try self.push(NativeOrAstFunction.fromAst(ast));
+    }
+
+    fn bytesAsValue(comptime T: type, bytes: []const u8) T {
+        // std.log.debug("{}, {x}, {}", .{ @alignOf(T), @ptrToInt(bytes.ptr), @ptrToInt(bytes.ptr) % @alignOf(T) });
+        return @ptrCast(*const T, @alignCast(@alignOf(T), bytes.ptr)).*;
+    }
+
+    fn printGenericValue(writer: anytype, memory: []const u8, typ: *const Type) anyerror!void {
+        switch (typ.kind) {
+            .Int => |*int| {
+                if (typ.kind.Int.signed) {
+                    switch (typ.size) {
+                        1 => try std.fmt.format(writer, "{}", .{bytesAsValue(i8, memory)}),
+                        2 => try std.fmt.format(writer, "{}", .{bytesAsValue(i16, memory)}),
+                        4 => try std.fmt.format(writer, "{}", .{bytesAsValue(i32, memory)}),
+                        8 => try std.fmt.format(writer, "{}", .{bytesAsValue(i64, memory)}),
+                        16 => try std.fmt.format(writer, "{}", .{bytesAsValue(i128, memory)}),
+                        else => unreachable,
+                    }
+                } else {
+                    switch (typ.size) {
+                        1 => try std.fmt.format(writer, "{}", .{bytesAsValue(u8, memory)}),
+                        2 => try std.fmt.format(writer, "{}", .{bytesAsValue(u16, memory)}),
+                        4 => try std.fmt.format(writer, "{}", .{bytesAsValue(u32, memory)}),
+                        8 => try std.fmt.format(writer, "{}", .{bytesAsValue(u64, memory)}),
+                        16 => try std.fmt.format(writer, "{}", .{bytesAsValue(u128, memory)}),
+                        else => unreachable,
+                    }
+                }
+            },
+            .Bool => {
+                try writer.print("{}", .{bytesAsValue(bool, memory)});
+            },
+            else => {
+                try writer.print("<unknown>", .{});
+            },
+        }
     }
 
     fn runCallPrint(self: *Self, ast: *Ast) anyerror!void {
         //std.log.debug("runCallPrint()", .{});
         const call = &ast.spec.Call;
 
+        try self.printBuffer.resize(0);
+
         for (call.args.items) |arg, i| {
             if (i > 0) {
-                std.debug.print(" ", .{});
+                try self.printBuffer.writer().print(" ", .{});
             }
             try self.runAst(arg);
-
-            switch (arg.typ.kind) {
-                .Int => |*int| {
-                    std.debug.print("{}", .{try self.pop(u128)});
-                },
-                .Bool => {
-                    std.debug.print("{}", .{try self.pop(bool)});
-                },
-                else => {
-                    std.debug.print("<unknown>", .{});
-                },
-            }
+            std.log.debug("sp: {}, size: {}", .{ self.stackPointer, arg.typ.size });
+            try printGenericValue(self.printBuffer.writer(), self.stack.items[(self.stackPointer - arg.typ.size)..(self.stackPointer)], arg.typ);
+            try self.popBytes(arg.typ.size);
         }
-        std.debug.print("\n", .{});
+        try self.printBuffer.writer().print("\n", .{});
+
+        // Print stuff in different color.
+        var stdOut = std.io.getStdOut().writer();
+        const style = term.Style{ .foreground = .{ .RGB = .{ .r = 0x9a, .g = 0xd6, .b = 0xd6 } } };
+        term.updateStyle(stdOut, style, null) catch {};
+        defer term.updateStyle(stdOut, .{}, style) catch {};
+
+        try stdOut.writeAll(self.printBuffer.items);
     }
 
     fn runIdentifier(self: *Self, ast: *Ast) anyerror!void {
-        //std.log.debug("runIdentifier()", .{});
         const id = &ast.spec.Identifier;
+        std.log.debug("runIdentifier({s})", .{id.name});
         if (std.mem.eql(u8, id.name, "true")) {
             try self.push(true);
         } else if (std.mem.eql(u8, id.name, "false")) {
@@ -257,9 +380,10 @@ pub const CodeRunner = struct {
             switch (id.symbol.?.kind) {
                 .Argument => |*arg| {
                     const offset = arg.offset;
-                    std.log.debug("Loading argument at index {}", .{offset});
+                    std.log.debug("Loading argument at index {} to {}", .{ offset, self.stackPointer });
                     //try self.pushSlice(gv.value.?);
                     try self.pushArg(offset, arg.typ.size);
+                    try self.printStack();
                 },
                 .Constant => |*constant| {
                     // Wait until value is known.
@@ -298,10 +422,42 @@ pub const CodeRunner = struct {
                     }
                     try self.pushSlice(gv.value.?);
                 },
+                .NativeFunction => |*func| {
+                    std.log.info("Push native function. {}", .{func.wrapper});
+                    try self.push(NativeOrAstFunction.fromNative(func.wrapper));
+                },
                 .Type => |*typ| {
                     try self.push(typ.typ);
                 },
                 else => return error.NotImplemented,
+            }
+        }
+    }
+
+    fn runInt(self: *Self, ast: *Ast) anyerror!void {
+        //std.log.debug("runInt()", .{});
+        const int = &ast.spec.Int;
+        const size = ast.typ.size;
+        const sign = ast.typ.kind.Int.signed;
+
+        if (sign) {
+            const value = @bitCast(i128, int.value);
+            switch (size) {
+                1 => try self.push(@intCast(i8, value)),
+                2 => try self.push(@intCast(i16, value)),
+                4 => try self.push(@intCast(i32, value)),
+                8 => try self.push(@intCast(i64, value)),
+                16 => try self.push(@intCast(i128, value)),
+                else => unreachable,
+            }
+        } else {
+            switch (size) {
+                1 => try self.push(@intCast(u8, int.value)),
+                2 => try self.push(@intCast(u16, int.value)),
+                4 => try self.push(@intCast(u32, int.value)),
+                8 => try self.push(@intCast(u64, int.value)),
+                16 => try self.push(@intCast(u128, int.value)),
+                else => unreachable,
             }
         }
     }
