@@ -36,6 +36,8 @@ pub const TypeChecker = struct {
     globalScope: *SymbolTable,
     currentScope: *SymbolTable,
 
+    currentFunction: ?*Ast = null,
+
     const Context = struct {
         injected: ?*Ast = null,
         expected: ?*const Type = null,
@@ -101,7 +103,7 @@ pub const TypeChecker = struct {
             .VarDecl => try self.compileVarDecl(_ast, ctx),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
-                std.log.debug("compileAst({s}) Not implemented", .{@tagName(@as(UnionTagType, _ast.spec))});
+                std.log.log(.err, .TypeChecker, "compileAst({s}) Not implemented", .{@tagName(@as(UnionTagType, _ast.spec))});
                 return error.NotImplemented;
             },
         }
@@ -142,6 +144,9 @@ pub const TypeChecker = struct {
                         return;
                     } else if (std.mem.eql(u8, id.name, "@fn")) {
                         try self.compileCallFn(ast, ctx);
+                        return;
+                    } else if (std.mem.eql(u8, id.name, "@return")) {
+                        try self.compileCallReturn(ast, ctx);
                         return;
                     } else if (id.name[0] == '@') {
                         self.reportError(&ast.location, "Unknown compiler function '{s}'", .{id.name});
@@ -427,7 +432,64 @@ pub const TypeChecker = struct {
             .args = args,
             .body = body.?,
         } };
+
+        const oldCurrentFunction = self.currentFunction;
+        self.currentFunction = ast;
+        defer self.currentFunction = oldCurrentFunction;
         try self.compileAst(body.?, .{});
+    }
+
+    fn compileCallReturn(self: *Self, ast: *Ast, ctx: Context) anyerror!void {
+        const call = &ast.spec.Call;
+        //std.log.debug("compileCallFn()", .{});
+
+        const function = self.currentFunction orelse {
+            self.reportError(&ast.location, "Can't return outside of function.", .{});
+            ast.typ = try self.typeRegistry.getErrorType();
+            return;
+        };
+
+        var returnValue: ?*Ast = null;
+
+        if (ctx.injected != null) {
+            returnValue = ctx.injected;
+            if (call.args.items.len > 0) {
+                self.reportError(&ast.location, "Too many arguments to @return().", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+        } else {
+            if (call.args.items.len > 1) {
+                self.reportError(&ast.location, "Too many arguments to @return().", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            } else if (call.args.items.len == 1) {
+                returnValue = call.args.items[0];
+            }
+        }
+
+        const functionType = &function.typ.kind.Function;
+
+        ast.spec = .{ .Return = .{
+            .value = returnValue,
+        } };
+
+        if (returnValue) |value| {
+            if (functionType.returnType == try self.typeRegistry.getVoidType()) {
+                self.reportError(&ast.location, "Can't return value in void function.", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+            try self.compileAst(value, .{ .expected = functionType.returnType });
+        } else {
+            if (functionType.returnType != try self.typeRegistry.getVoidType()) {
+                self.reportError(&ast.location, "Missing return value.", .{});
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
+        }
+
+        ast.typ = try self.typeRegistry.getVoidType();
     }
 
     fn compileIdentifier(self: *Self, ast: *Ast, ctx: Context) anyerror!void {

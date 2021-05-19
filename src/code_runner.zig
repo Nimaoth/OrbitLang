@@ -162,11 +162,12 @@ pub const CodeRunner = struct {
         switch (ast.spec) {
             .Block => try self.runBlock(ast),
             .Call => try self.runCall(ast),
+            .ConstDecl => {},
             .Identifier => try self.runIdentifier(ast),
             .Int => try self.runInt(ast),
             .Function => try self.runFunction(ast),
             .Pipe => try self.runPipe(ast),
-            .ConstDecl => {},
+            .Return => try self.runReturn(ast),
             .VarDecl => try self.runVarDecl(ast),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
@@ -248,10 +249,20 @@ pub const CodeRunner = struct {
             switch (nativeOrAstFunction.get()) {
                 .Ast => |func| {
                     std.debug.assert(func.is(.Function));
-                    try self.runAst(func.spec.Function.body);
+                    self.runAst(func.spec.Function.body) catch |err| switch (err) {
+                        error.Return => {
+                            std.log.log(.debug, .CodeRunner, "Function returned with @return().", .{});
+                        },
+                        else => return err,
+                    };
                 },
                 .Native => |func| {
-                    try func.invoke(self, call.func.typ);
+                    func.invoke(self, call.func.typ) catch |err| switch (err) {
+                        error.Return => {
+                            std.log.log(.debug, .CodeRunner, "Function returned with @return().", .{});
+                        },
+                        else => return err,
+                    };
                 },
             }
             returnValuePointer = self.stackPointer - returnType.size;
@@ -306,6 +317,17 @@ pub const CodeRunner = struct {
         } else {
             @panic("Not implemented");
         }
+    }
+
+    fn runReturn(self: *Self, ast: *Ast) anyerror!void {
+        //std.log.log(.debug, .CodeRunner, "runReturn()", .{});
+        const ret = &ast.spec.Return;
+
+        if (ret.value) |value| {
+            try self.runAst(value);
+        }
+
+        return error.Return;
     }
 
     fn runFunction(self: *Self, ast: *Ast) anyerror!void {

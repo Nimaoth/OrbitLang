@@ -138,15 +138,16 @@ pub const DotPrinter = struct {
             .Block => |*block| try std.fmt.format(writer, "\\n{{}}", .{}),
             .Call => |*call| try std.fmt.format(writer, "\\n()", .{}),
             .ConstDecl => |*decl| try std.fmt.format(writer, "\\n::", .{}),
-            .VarDecl => |*decl| try std.fmt.format(writer, "\\n:=", .{}),
             .Float => |float| try std.fmt.format(writer, "\\n{}", .{float.value}),
+            .Function => |*func| try std.fmt.format(writer, "\\nfn", .{}),
             .Identifier => |id| try std.fmt.format(writer, "\\n{s}", .{id.name}),
             .Int => |int| try std.fmt.format(writer, "\\n{}", .{int.value}),
             .Lambda => |*lambda| try std.fmt.format(writer, "\\n||", .{}),
             .Pipe => |*pipe| try std.fmt.format(writer, "\\n->", .{}),
+            .Return => |*ret| try std.fmt.format(writer, "\\nreturn", .{}),
             .String => |text| try std.fmt.format(writer, "\\n{s}", .{text.value}),
             .Tuple => |*tuple| try std.fmt.format(writer, "\\n(,)", .{}),
-            .Function => |*func| try std.fmt.format(writer, "\\nfn", .{}),
+            .VarDecl => |*decl| try std.fmt.format(writer, "\\n:=", .{}),
 
             //else => try writer.writeAll("<Unknown>"),
         }

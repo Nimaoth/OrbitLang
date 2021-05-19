@@ -110,6 +110,14 @@ pub const AstFormatter = struct {
                 try self.format(writer, pipe.right, indent);
             },
 
+            .Return => |ret| {
+                try std.fmt.format(writer, "@return(", .{});
+                if (ret.value) |value| {
+                    try self.format(writer, value, indent);
+                }
+                try std.fmt.format(writer, ")", .{});
+            },
+
             .String => |text| try std.fmt.format(writer, "\"{s}\"", .{text.value}),
 
             .Tuple => |*tuple| {

@@ -57,6 +57,9 @@ pub const AstSpec = union(enum) {
         left: *Ast,
         right: *Ast,
     },
+    Return: struct {
+        value: ?*Ast,
+    },
     String: struct {
         value: []const u8,
     },
