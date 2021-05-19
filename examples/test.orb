@@ -1,29 +1,19 @@
-#a : bool = 0
-#a, b := 1, 2
-#(a, b := 1, 2)
-#@fn(a, b := 1, 2)
-#func : @fn(() -> void) = foo
-#getFoo :: @fn(() -> void) {
-#    return foo
-#}
 
+foo(false, false)
+foo(false, true)
+foo :: @fn((a: bool, b: bool) -> bool) {
+    @print(a, b)
+    a -> @then() @print(69)
+    b -> @then() @print(420)
+}
+foo(true, false)
+foo(true, true)
 
+bar(false, false)
+bar(false, true)
+bar(true, false)
+bar(true, true)
 
-#foo :: @fn((a: bool, b: bool) -> bool) {
-#    @print(a, b)
-#    a -> @then() @print(69)
-#    b -> @then() @print(420)
-#}
-#foo(false, false)
-#foo(false, true)
-#foo(true, false)
-#foo(true, true)
-#
-#bar(false, false)
-#bar(false, true)
-#bar(true, false)
-#bar(true, true)
-#
 not :: __not
 eql :: __eql
 sub :: __sub

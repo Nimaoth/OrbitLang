@@ -99,14 +99,18 @@ pub const FiberContext = struct {
         ctx.madeProgress = true;
 
         while (true) {
+            std.log.debug("[Job] Suspending job because condition is not met.", .{});
             Coroutine.yield() catch unreachable;
             if (ctx.wasCancelled) {
+                std.log.debug("[Job] Job was cancelled, reporting error.", .{});
                 condition.reportError(ctx.job.?.compiler.?);
                 return error.WaitFailed;
             } else if (condition.eval()) {
+                std.log.debug("[Job] Resuming job.", .{});
                 ctx.madeProgress = true;
                 return;
             } else {
+                std.log.debug("[Job] Condition still not met, no progress made.", .{});
                 ctx.madeProgress = false;
             }
         }
@@ -156,19 +160,24 @@ pub const CompileAstJob = struct {
         var ctx = Coroutine.current().getUserData() orelse unreachable;
         var compiler = job.compiler orelse unreachable;
 
+        const ast = self.ast;
+        const astSpec = @as(std.meta.TagType(AstSpec), ast.spec);
+
+        std.log.debug("[CompileAstJob {} @ {}] Start", .{ astSpec, ast.location });
+
         var typeChecker = try TypeChecker.init(compiler, &ctx.codeRunner);
         defer typeChecker.deinit();
 
-        std.log.debug("CompileAstJob: {x}, {x}", .{ @ptrToInt(job), @ptrToInt(self.ast) });
         try typeChecker.compileAst(self.ast, .{});
-        std.log.debug("After compileAst", .{});
 
         if (self.ast.typ.is(.Error) or self.ast.typ.is(.Unknown)) {
             const location = &self.ast.location;
-            std.log.debug("{s}:{}:{}: Failed to compile top level expr", .{ location.file, location.line, location.column });
+            std.log.debug("[CompileAstJob {} @ {}] Failed to compile top level expr.", .{ astSpec, ast.location });
         } else {
+            std.log.debug("[CompileAstJob {} @ {}] Run ast.", .{ astSpec, ast.location });
             try ctx.codeRunner.runAst(self.ast);
         }
+        std.log.debug("[CompileAstJob {} @ {}] Done.", .{ astSpec, ast.location });
     }
 };
 
@@ -197,6 +206,8 @@ pub const LoadFileJob = struct {
         const self = @fieldParentPtr(Self, "job", job);
         var ctx = Coroutine.current().getUserData() orelse unreachable;
         var compiler: *Compiler = job.compiler orelse unreachable;
+
+        std.log.debug("[LoadFileJob '{s}'] Load file.", .{self.fileName});
 
         const fileContent = try std.fs.cwd().readFileAlloc(compiler.allocator, self.fileName, std.math.maxInt(usize));
 

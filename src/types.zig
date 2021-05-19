@@ -64,6 +64,7 @@ pub const TypeSize = union(enum) {
 pub const Type = struct {
     flags: TypeFlags = TypeFlags{},
     size: usize = 0,
+    alignment: usize = 0,
     kind: TypeKind,
 
     const Self = @This();
@@ -187,6 +188,7 @@ pub const TypeRegistry = struct {
                     .generic_set = true,
                 },
                 .size = 0,
+                .alignment = 0,
                 .kind = .Error,
             };
         }
@@ -204,6 +206,7 @@ pub const TypeRegistry = struct {
                     .generic_set = true,
                 },
                 .size = 0,
+                .alignment = 0,
                 .kind = .Type,
             };
         }
@@ -221,6 +224,7 @@ pub const TypeRegistry = struct {
                     .generic_set = true,
                 },
                 .size = 0,
+                .alignment = 0,
                 .kind = .Void,
             };
         }
@@ -237,6 +241,7 @@ pub const TypeRegistry = struct {
                 .generic_set = true,
             },
             .size = size,
+            .alignment = 1,
             .kind = .Bool,
         };
         return typ;
@@ -252,7 +257,7 @@ pub const TypeRegistry = struct {
                 .generic_set = true,
             },
             .size = size,
-            //.alignment = alignment orelse size,
+            .alignment = alignment orelse size,
             .kind = TypeKind{ .Int = .{
                 .signed = signed,
             } },
@@ -274,6 +279,7 @@ pub const TypeRegistry = struct {
                 .generic_set = true,
             },
             .size = 8, // @todo: size of pointer
+            .alignment = 8,
             .kind = .{ .Function = .{
                 .params = params,
                 .returnType = returnType,
@@ -286,6 +292,7 @@ pub const TypeRegistry = struct {
         const typeInfo = @typeInfo(T);
 
         var size: usize = 0;
+        var alignment: usize = 0;
         var kind: TypeKind = .Unknown;
 
         switch (typeInfo) {
@@ -300,6 +307,7 @@ pub const TypeRegistry = struct {
                 }
 
                 size = 8;
+                alignment = 8;
                 kind = .{ .Function = .{
                     .params = params,
                     .returnType = if (info.return_type) |typ| try self.createFromNativeType(typ) else try self.getVoidType(),
@@ -318,6 +326,7 @@ pub const TypeRegistry = struct {
                 .generic_set = true,
             },
             .size = size,
+            .alignment = alignment,
             .kind = kind,
         };
 

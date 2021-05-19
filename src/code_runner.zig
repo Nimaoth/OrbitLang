@@ -210,46 +210,57 @@ pub const CodeRunner = struct {
             else => {},
         }
 
-        // regular call
-
-        // Get the function ast.
-        std.log.debug("Get the function.", .{});
-        try self.runAst(call.func);
-        const nativeOrAstFunction = try self.pop(NativeOrAstFunction);
-
-        // Stack frame
-        std.log.debug("Stack frame.", .{});
-        try self.push(self.basePointer);
-        const newBasePointer = self.stackPointer;
-
-        // Arguments.
-        std.log.debug("Arguments.", .{});
-        for (call.args.items) |arg, i| {
-            std.log.debug("Running argument {} at {}", .{ i, self.stackPointer });
-            try self.runAst(arg);
-        }
-
-        // Finish stack frame.
-        std.log.debug("Base pointer: {}", .{self.basePointer});
-        self.basePointer = newBasePointer;
-
         const returnType = call.func.typ.kind.Function.returnType;
+        var returnValuePointer: usize = undefined;
 
-        switch (nativeOrAstFunction.get()) {
-            .Ast => |func| {
-                std.debug.assert(func.is(.Function));
-                try self.runAst(func.spec.Function.body);
-            },
-            .Native => |func| {
-                try func.invoke(self, call.func.typ);
-            },
+        {
+            // Align stack to 8 bytes.
+            const oldStackPointer = self.stackPointer;
+            defer self.stackPointer = oldStackPointer;
+            self.stackPointer = std.mem.alignForward(self.stackPointer, 8);
+            std.log.debug("Align stack pointer from {} to {}.", .{ oldStackPointer, self.stackPointer });
+
+            // Get the function ast.
+            std.log.debug("Get the function.", .{});
+            try self.runAst(call.func);
+            const nativeOrAstFunction = try self.pop(NativeOrAstFunction);
+
+            // Stack frame
+            std.log.debug("Stack frame.", .{});
+            try self.push(self.basePointer);
+            const newBasePointer = self.stackPointer;
+
+            // Arguments.
+            std.log.debug("Arguments.", .{});
+            for (call.args.items) |arg, i| {
+                std.log.debug("Running argument {} at {}", .{ i, self.stackPointer });
+                self.stackPointer = std.mem.alignForward(self.stackPointer, arg.typ.alignment);
+                try self.runAst(arg);
+            }
+
+            // Finish stack frame.
+            std.log.debug("Base pointer: {}", .{self.basePointer});
+            self.basePointer = newBasePointer;
+
+            if (returnType.alignment > 0) {
+                self.stackPointer = std.mem.alignForward(self.stackPointer, returnType.alignment);
+            }
+            switch (nativeOrAstFunction.get()) {
+                .Ast => |func| {
+                    std.debug.assert(func.is(.Function));
+                    try self.runAst(func.spec.Function.body);
+                },
+                .Native => |func| {
+                    try func.invoke(self, call.func.typ);
+                },
+            }
+            returnValuePointer = self.stackPointer - returnType.size;
+
+            std.log.debug("After call, restore base pointer.", .{});
+            self.stackPointer = newBasePointer;
+            self.basePointer = try self.pop(@TypeOf(self.basePointer));
+            std.log.debug("Resetting base pointer: {}", .{self.basePointer});
         }
-        var returnValuePointer = self.stackPointer - returnType.size;
-
-        std.log.debug("After call, restore base pointer.", .{});
-        self.stackPointer = newBasePointer;
-        self.basePointer = try self.pop(@TypeOf(self.basePointer));
-        std.log.debug("Resetting base pointer: {}", .{self.basePointer});
 
         if (returnType.size > 0) {
             std.log.debug("Copying return value from {} to {}", .{ returnValuePointer, self.stackPointer });
@@ -300,7 +311,6 @@ pub const CodeRunner = struct {
     fn runFunction(self: *Self, ast: *Ast) anyerror!void {
         //std.log.debug("runFunction()", .{});
         const call = &ast.spec.Function;
-        std.log.info("Push ast function. {}", .{ast});
         try self.push(NativeOrAstFunction.fromAst(ast));
     }
 
@@ -345,12 +355,19 @@ pub const CodeRunner = struct {
         //std.log.debug("runCallPrint()", .{});
         const call = &ast.spec.Call;
 
+        // Align stack pointer.
+        const oldStackPointer = self.stackPointer;
+        defer self.stackPointer = oldStackPointer;
+        //self.stackPointer = std.mem.alignForward(self.stackPointer, 8);
+        //std.log.debug("Align stack pointer from {} to {}.", .{ oldStackPointer, self.stackPointer });
+
         try self.printBuffer.resize(0);
 
         for (call.args.items) |arg, i| {
             if (i > 0) {
                 try self.printBuffer.writer().print(" ", .{});
             }
+            self.stackPointer = std.mem.alignForward(self.stackPointer, arg.typ.alignment);
             try self.runAst(arg);
             std.log.debug("sp: {}, size: {}", .{ self.stackPointer, arg.typ.size });
             try printGenericValue(self.printBuffer.writer(), self.stack.items[(self.stackPointer - arg.typ.size)..(self.stackPointer)], arg.typ);

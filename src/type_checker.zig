@@ -399,7 +399,7 @@ pub const TypeChecker = struct {
                     return;
                 }
 
-                argOffset += paramType.size;
+                argOffset = std.mem.alignForward(argOffset + paramType.size, paramType.alignment);
             }
 
             // Compile return type.
