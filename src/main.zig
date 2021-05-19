@@ -11,6 +11,8 @@ usingnamespace @import("dot_printer.zig");
 usingnamespace @import("compiler.zig");
 usingnamespace @import("job.zig");
 
+pub const log = @import("logger.zig").log;
+
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
