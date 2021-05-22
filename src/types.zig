@@ -161,6 +161,8 @@ pub const TypeRegistry = struct {
     typeType: ?*Type = null,
     voidType: ?*Type = null,
 
+    boolTypes: [8]?*Type = [_]?*Type{null} ** 8,
+
     const Self = @This();
 
     pub fn init(allocator: *std.mem.Allocator) !Self {
@@ -232,19 +234,24 @@ pub const TypeRegistry = struct {
     }
 
     pub fn getBoolType(self: *Self, size: usize) !*Type {
-        var typ = try self.allocator.allocator.create(Type);
-        typ.* = Type{
-            .flags = .{
-                .ready = true,
-                .size_set = true,
-                .generic = false,
-                .generic_set = true,
-            },
-            .size = size,
-            .alignment = 1,
-            .kind = .Bool,
-        };
-        return typ;
+        std.debug.assert(size > 0);
+        const index = size - 1;
+        if (self.boolTypes[index] == null) {
+            var typ = try self.allocator.allocator.create(Type);
+            typ.* = Type{
+                .flags = .{
+                    .ready = true,
+                    .size_set = true,
+                    .generic = false,
+                    .generic_set = true,
+                },
+                .size = size,
+                .alignment = 1,
+                .kind = .Bool,
+            };
+            self.boolTypes[index] = typ;
+        }
+        return self.boolTypes[index].?;
     }
 
     pub fn getIntType(self: *Self, size: usize, signed: bool, alignment: ?usize) !*Type {

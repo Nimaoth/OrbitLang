@@ -92,6 +92,14 @@ pub const TypeChecker = struct {
         self.currentScope = self.currentScope.parent.?;
     }
 
+    fn typesDontMatch(self: *Self, expected: *const Type, given: *Ast) !bool {
+        if (expected == given.typ) {
+            return false;
+        }
+
+        return true;
+    }
+
     pub fn compileAst(self: *Self, _ast: *Ast, ctx: Context) anyerror!void {
         switch (_ast.spec) {
             .Block => try self.compileBlock(_ast, ctx),
@@ -196,7 +204,14 @@ pub const TypeChecker = struct {
                 return;
             }
 
+            std.log.debug("Param: {}, arg: {}.", .{ paramType, arg.typ });
+            std.log.debug("Param: {}, arg: {}.", .{ &paramType, &arg.typ });
             // @todo: Check if arg has correct type.
+            if (try self.typesDontMatch(paramType, arg)) {
+                self.reportError(&arg.location, "Argument type does not match parameter type. Expected {}, got {}.", .{ paramType, arg.typ });
+                ast.typ = try self.typeRegistry.getErrorType();
+                return;
+            }
         }
     }
 
