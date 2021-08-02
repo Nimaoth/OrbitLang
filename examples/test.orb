@@ -1,43 +1,7 @@
-
-foo(false, false)
 foo(false, true)
+
 foo :: @fn((a: bool, b: bool) -> bool) {
     @print(a, b)
     a -> @then() @print(69)
     b -> @then() @print(420)
-}
-foo(true, false)
-foo(true, true)
-
-bar(false, false)
-bar(false, true)
-bar(true, false)
-bar(true, true)
-
-not :: __not
-eql :: __eql
-add :: __add
-sub :: __sub
-neg :: @fn((n: i64,) -> i64) {
-    @return() sub(0, n)
-}
-
-do(0, 32)
-
-do :: @fn((n: i64, b: i64) -> void) {
-    @print(neg(n), fib(n))
-    not(eql(n, b)) -> @then() {
-        do(add(n, 1), b)
-    }
-}
-
-
-
-fib :: @fn((n: i64,) -> i64) {
-    eql(n, 0) -> @then() @return() 1
-    eql(n, 1) -> @then() @return() 1
-    @return() add(
-        fib(sub(n, 1))
-        fib(sub(n, 2))
-    )
 }
