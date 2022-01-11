@@ -1,0 +1,58 @@
+
+if (true):
+    print "Hello"
+
+if (true): print "Hello"
+if (true, print(hello))
+
+if cond:
+    print "true"
+:
+    print "false"
+
+if cond (print "true") (print "false")
+
+cond | if (print "true") (print "false)
+
+cond | if 1 2
+cond | select 1 2
+cond | select 1 : 2
+
+# variable declarations
+let a 5
+let a int 5
+let a : 5
+let a : int : 5
+let a int undefined
+let a : int : undefined
+let [a, b] : [5, 6]
+
+custom_if a b:
+    print "Hello"
+    print "World"
+
+(custom_if a b (print "Hello"))
+
+# function calls
+call arg
+call(arg)
+
+call arg1 arg2
+call (arg1) (arg2)
+
+call arg1 arg2:
+    arg3
+
+call arg1 arg2 : arg3
+
+call arg1 arg2
+    : arg3
+
+call arg1
+    : arg2
+    : arg3
+
+call arg1:
+    arg2
+:
+    arg3

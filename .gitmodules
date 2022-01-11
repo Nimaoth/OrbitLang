@@ -1,3 +1,6 @@
 [submodule "deps/ansi-term"]
 	path = deps/ansi-term
 	url = https://github.com/ziglibs/ansi-term
+[submodule "deps/zig-clap"]
+	path = deps/zig-clap
+	url = https://github.com/Hejsil/zig-clap.git
