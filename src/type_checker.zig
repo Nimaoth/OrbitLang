@@ -15,6 +15,8 @@ usingnamespace @import("code_runner.zig");
 usingnamespace @import("dot_printer.zig");
 usingnamespace @import("ring_buffer.zig");
 
+const log = std.log.scoped(.TypeChecker);
+
 pub const TypeListener = struct {
     const Self = @This();
 
@@ -111,7 +113,7 @@ pub const TypeChecker = struct {
             .VarDecl => try self.compileVarDecl(_ast, ctx),
             else => {
                 const UnionTagType = @typeInfo(AstSpec).Union.tag_type.?;
-                std.log.log(.err, .TypeChecker, "compileAst({s}) Not implemented", .{@tagName(@as(UnionTagType, _ast.spec))});
+                log.debug("compileAst({s}) Not implemented", .{@tagName(@as(UnionTagType, _ast.spec))});
                 return error.NotImplemented;
             },
         }

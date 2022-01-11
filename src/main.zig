@@ -28,7 +28,7 @@ pub fn main() anyerror!void {
     };
 
     var diag = clap.Diagnostic{};
-    var args = clap.parse(clap.Help, &params, allocator, &diag) catch |err| {
+    var args = clap.parse(clap.Help, &params, .{.allocator = allocator, .diagnostic = &diag}) catch |err| {
         diag.report(std.io.getStdErr().writer(), err) catch {};
         return err;
     };

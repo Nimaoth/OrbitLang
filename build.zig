@@ -18,7 +18,7 @@ pub fn build(b: *std.build.Builder) void {
     exe.addCSourceFile("src/coro.c", &.{});
     exe.linkLibC();
     exe.addIncludeDir("src");
-    exe.addPackage(.{ .name = "clap", .path = "../zig-clap-0.3.0/zig-clap-0.3.0/clap.zig" });
+    exe.addPackage(.{ .name = "clap", .path = "./deps/zig-clap/clap.zig" });
     exe.addPackage(.{ .name = "ansi-term", .path = "./deps/ansi-term/src/main.zig" });
     exe.setTarget(target);
     exe.setBuildMode(mode);

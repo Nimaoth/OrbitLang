@@ -16,6 +16,8 @@ usingnamespace @import("ring_buffer.zig");
 usingnamespace @import("symbol.zig");
 usingnamespace @import("types.zig");
 
+const log = std.log.scoped(.Compiler);
+
 pub const SourceFile = struct {
     path: StringBuf,
     content: StringBuf,
@@ -233,25 +235,27 @@ pub const Compiler = struct {
 
     pub fn addJob(self: *Self, job: *Job) !void {
         try self.unqueuedJobs.push(job);
-        std.log.log(.debug, .Compiler, "{}, {}, {}", .{ self.unqueuedJobs.len(), self.readyFibers.len(), self.waitingFibers.len() });
+        log.debug("{}, {}, {}", .{ self.unqueuedJobs.len(), self.readyFibers.len(), self.waitingFibers.len() });
     }
 
     pub fn run(self: *Self) !void {
         var madeProgress = false;
 
+        const _log = std.log.scoped(.EventLoop);
+
         while (true) {
-            std.log.log(.debug, .EventLoop, "{}, {}, {}", .{ self.unqueuedJobs.len(), self.readyFibers.len(), self.waitingFibers.len() });
+            _log.debug("{}, {}, {}", .{ self.unqueuedJobs.len(), self.readyFibers.len(), self.waitingFibers.len() });
             var fiber: ?*FiberContext = null;
             if (self.readyFibers.len() == 0 and self.waitingFibers.len() > 0 and madeProgress) {
-                std.log.log(.debug, .EventLoop, "Move jobs from waiting queue to ready queue.", .{});
+                _log.debug("Move jobs from waiting queue to ready queue.", .{});
                 self.swapReadyAndWaitingQueue();
                 madeProgress = false;
             }
             if (self.readyFibers.pop()) |f| {
-                std.log.log(.debug, .EventLoop, "Take job from ready queue.", .{});
+                _log.debug("Take job from ready queue.", .{});
                 fiber = f;
             } else if (self.unqueuedJobs.pop()) |job| {
-                std.log.log(.debug, .EventLoop, "Start next job.", .{});
+                _log.debug("Start next job.", .{});
                 job.compiler = self;
                 fiber = try self.getFreeFiber();
                 fiber.?.job = job;
@@ -260,7 +264,7 @@ pub const Compiler = struct {
                 fiber.?.done = false;
                 fiber.?.state = .Suspended;
             } else {
-                std.log.log(.debug, .EventLoop, "No more jobs left.", .{});
+                _log.debug("No more jobs left.", .{});
                 break;
             }
 
@@ -281,10 +285,10 @@ pub const Compiler = struct {
         std.debug.assert(self.readyFibers.len() == 0);
 
         // Cancel all waiting jobs.
-        std.log.log(.debug, .Compiler, "There are {} fibers still waiting.", .{self.waitingFibers.len()});
+        _log.debug("There are {} fibers still waiting.", .{self.waitingFibers.len()});
         var it = self.waitingFibers.iterator();
         while (it.next()) |f| {
-            std.log.log(.debug, .Compiler, "Cancelling job.", .{});
+            _log.debug("Cancelling job.", .{});
             f.wasCancelled = true;
             try f.step();
 

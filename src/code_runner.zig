@@ -16,6 +16,7 @@ usingnamespace @import("symbol.zig");
 usingnamespace @import("types.zig");
 
 const DEBUG_LOG_STACK = false;
+const log = std.log.scoped(.CodeRunner);
 
 const NativeOrAstFunction = struct {
     ptr: usize,
@@ -251,7 +252,7 @@ pub const CodeRunner = struct {
                     std.debug.assert(func.is(.Function));
                     self.runAst(func.spec.Function.body) catch |err| switch (err) {
                         error.Return => {
-                            std.log.log(.debug, .CodeRunner, "Function returned with @return().", .{});
+                            log.debug("Function returned with @return().", .{});
                         },
                         else => return err,
                     };
@@ -259,7 +260,7 @@ pub const CodeRunner = struct {
                 .Native => |func| {
                     func.invoke(self, call.func.typ) catch |err| switch (err) {
                         error.Return => {
-                            std.log.log(.debug, .CodeRunner, "Function returned with @return().", .{});
+                            log.debug("Function returned with @return().", .{});
                         },
                         else => return err,
                     };
@@ -320,7 +321,7 @@ pub const CodeRunner = struct {
     }
 
     fn runReturn(self: *Self, ast: *Ast) anyerror!void {
-        //std.log.log(.debug, .CodeRunner, "runReturn()", .{});
+        //log.debug("runReturn()", .{});
         const ret = &ast.spec.Return;
 
         if (ret.value) |value| {
