@@ -48,9 +48,11 @@ pub const NativeFunctionWrapper = struct {
                 inline for (info.fields) |field, i| {
                     const fieldPtr = &@field(args, field.name);
 
-                    std.log.debug("Loading argument from {}", .{codeRunner.basePointer + currentOffset});
-                    try codeRunner.copyArgInto(currentOffset, std.mem.asBytes(fieldPtr));
-                    currentOffset += callFuncType.kind.Function.params.items[i].size;
+                    const offset = std.mem.alignForward(codeRunner.basePointer + currentOffset, field.alignment) - codeRunner.basePointer;
+                    std.log.debug("Loading argument from {} with alignment {}", .{offset, field.alignment});
+                    try codeRunner.copyArgInto(offset, std.mem.asBytes(fieldPtr));
+                    std.log.debug("{}", .{fieldPtr.*});
+                    currentOffset = offset + callFuncType.kind.Function.params.items[i].size;
                     try codeRunner.printStack();
                 }
 

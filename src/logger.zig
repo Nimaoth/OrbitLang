@@ -19,7 +19,7 @@ pub fn log(
     };
     style.background = switch (message_level) {
         .emerg, .alert, .crit => .Red,
-        else => .Black,
+        else => .Default,
     };
 
     const stderr = std.io.getStdErr().writer();

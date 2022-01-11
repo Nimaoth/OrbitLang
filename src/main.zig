@@ -13,13 +13,16 @@ usingnamespace @import("job.zig");
 
 pub const log = @import("logger.zig").log;
 
+pub const log_level: std.log.Level = .info;
+
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     var allocator = &gpa.allocator;
 
+    std.debug.print("Orbit 0.0.1\n", .{});
+
     const params = comptime [_]clap.Param(clap.Help){
-        clap.parseParam("-h, --help             Display this help and exit.") catch unreachable,
         clap.parseParam("-c, --compile          Compile input files.") catch unreachable,
         clap.parseParam("-l, --lex              Only lex input files.") catch unreachable,
         clap.parseParam("-p, --parse            Only parse input files.") catch unreachable,

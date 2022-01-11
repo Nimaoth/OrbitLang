@@ -56,14 +56,14 @@ pub const CodeRunner = struct {
 
     // execution
     globalVariables: *std.mem.Allocator,
-    stack: std.ArrayListAligned(u8, 8),
+    stack: std.ArrayListAligned(u8, 16),
     stackPointer: usize = 0,
     basePointer: usize = 0,
 
     const Self = @This();
 
     pub fn init(compiler: *Compiler) !Self {
-        var stack = std.ArrayListAligned(u8, 8).init(&compiler.stackAllocator.allocator);
+        var stack = std.ArrayListAligned(u8, 16).init(&compiler.stackAllocator.allocator);
         try stack.resize(4 * 1024 * 1024);
         return Self{
             .allocator = compiler.allocator,
@@ -228,25 +228,27 @@ pub const CodeRunner = struct {
             const nativeOrAstFunction = try self.pop(NativeOrAstFunction);
 
             // Stack frame
-            std.log.debug("Stack frame.", .{});
             try self.push(self.basePointer);
-            const newBasePointer = self.stackPointer;
+
+            if (call.args.items.len > 0) {
+                self.stackPointer = std.mem.alignForward(self.stackPointer, call.args.items[0].typ.alignment);
+            }
+
+            self.basePointer = self.stackPointer;
+            std.log.debug("Stack frame. BasePointer = {}, StackPointer = {}", .{self.basePointer, self.stackPointer});
 
             // Arguments.
             std.log.debug("Arguments.", .{});
             for (call.args.items) |arg, i| {
-                std.log.debug("Running argument {} at {}", .{ i, self.stackPointer });
                 self.stackPointer = std.mem.alignForward(self.stackPointer, arg.typ.alignment);
+                std.log.debug("Running argument {} at {}", .{ i, self.stackPointer });
                 try self.runAst(arg);
             }
-
-            // Finish stack frame.
-            std.log.debug("Base pointer: {}", .{self.basePointer});
-            self.basePointer = newBasePointer;
 
             if (returnType.alignment > 0) {
                 self.stackPointer = std.mem.alignForward(self.stackPointer, returnType.alignment);
             }
+
             switch (nativeOrAstFunction.get()) {
                 .Ast => |func| {
                     std.debug.assert(func.is(.Function));
@@ -269,7 +271,6 @@ pub const CodeRunner = struct {
             returnValuePointer = self.stackPointer - returnType.size;
 
             std.log.debug("After call, restore base pointer.", .{});
-            self.stackPointer = newBasePointer;
             self.basePointer = try self.pop(@TypeOf(self.basePointer));
             std.log.debug("Resetting base pointer: {}", .{self.basePointer});
         }
@@ -284,8 +285,8 @@ pub const CodeRunner = struct {
         //std.log.debug("runCallThen()", .{});
         const call = &ast.spec.Call;
 
-        const condition = call.args.items[1];
-        const body = call.args.items[0];
+        const condition = call.args.items[0];
+        const body = call.args.items[1];
 
         try self.runAst(condition);
         if (try self.pop(bool)) {
@@ -338,7 +339,7 @@ pub const CodeRunner = struct {
     }
 
     fn bytesAsValue(comptime T: type, bytes: []const u8) T {
-        // std.log.debug("{}, {x}, {}", .{ @alignOf(T), @ptrToInt(bytes.ptr), @ptrToInt(bytes.ptr) % @alignOf(T) });
+        std.log.debug("bytesAsValue {}, {x}, {}", .{ @alignOf(T), @ptrToInt(bytes.ptr), @ptrToInt(bytes.ptr) % @alignOf(T) });
         return @ptrCast(*const T, @alignCast(@alignOf(T), bytes.ptr)).*;
     }
 
@@ -463,7 +464,7 @@ pub const CodeRunner = struct {
                     try self.pushSlice(gv.value.?);
                 },
                 .NativeFunction => |*func| {
-                    std.log.info("Push native function. {}", .{func.wrapper});
+                    std.log.debug("Push native function. {}", .{func.wrapper});
                     try self.push(NativeOrAstFunction.fromNative(func.wrapper));
                 },
                 .Type => |*typ| {

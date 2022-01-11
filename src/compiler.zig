@@ -148,7 +148,7 @@ pub const Compiler = struct {
         std.fmt.format(stdOut, "bar({}, {})\n", .{ a, b }) catch unreachable;
     }
 
-    fn add(a: i64, b: i64) i64 {
+    fn add(a: i128, b: i128) i128 {
         std.log.debug("add({}, {})", .{ a, b });
         return a + b;
     }
@@ -285,10 +285,10 @@ pub const Compiler = struct {
         std.debug.assert(self.readyFibers.len() == 0);
 
         // Cancel all waiting jobs.
-        _log.debug("There are {} fibers still waiting.", .{self.waitingFibers.len()});
+        _log.info("There are {} fibers still waiting.", .{self.waitingFibers.len()});
         var it = self.waitingFibers.iterator();
         while (it.next()) |f| {
-            _log.debug("Cancelling job.", .{});
+            _log.info("Cancelling job.", .{});
             f.wasCancelled = true;
             try f.step();
 

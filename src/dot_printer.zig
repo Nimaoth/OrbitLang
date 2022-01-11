@@ -114,9 +114,9 @@ pub const DotPrinter = struct {
             },
 
             .Pipe => |*ast| {
-                try self.printConnection(writer, _ast, ast.left);
+                //try self.printConnection(writer, _ast, ast.left);
                 try self.printConnection(writer, _ast, ast.right);
-                try self.printGraph(writer, ast.left);
+                //try self.printGraph(writer, ast.left);
                 try self.printGraph(writer, ast.right);
             },
 
@@ -125,6 +125,15 @@ pub const DotPrinter = struct {
                     try self.printConnection(writer, _ast, expr);
                     try self.printGraph(writer, expr);
                 }
+            },
+
+            .Function => |*ast| {
+                for (ast.args.items) |expr| {
+                    try self.printConnection(writer, _ast, expr);
+                    try self.printGraph(writer, expr);
+                }
+                try self.printConnection(writer, _ast, ast.body);
+                try self.printGraph(writer, ast.body);
             },
 
             else => {},

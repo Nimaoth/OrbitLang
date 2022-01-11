@@ -235,39 +235,42 @@ pub const TypeChecker = struct {
         const call = &ast.spec.Call;
         //std.log.debug("compileCallThen()", .{});
 
-        if (ctx.injected == null) {
+        if (ctx.injected == null and call.args.items.len != 2) {
             self.reportError(&ast.location, "Missing condition for @then(). Hint: Use the pipe operator (->)", .{});
             ast.typ = try self.typeRegistry.getErrorType();
             return;
         }
 
-        // compile and check condition
-        try self.compileAst(ctx.injected.?, .{});
-        if (self.wasError(ast, ctx.injected.?)) {
-            return;
+        // Add injected expression as first argument so we have a pointer for running this ast.
+        if (ctx.injected != null) {
+            try call.args.insert(0, ctx.injected.?);
         }
 
-        if (!ctx.injected.?.typ.is(.Bool)) {
-            self.reportError(&ast.location, "Condition for @then() is not a bool but '{}'", .{ctx.injected.?.typ});
+        if (call.args.items.len != 2) {
+            self.reportError(&ast.location, "Wrong number of arguments for @then(). Expected 2, got {}.", .{call.args.items.len});
             ast.typ = try self.typeRegistry.getErrorType();
             return;
         }
 
-        // check number of arguments
-        if (call.args.items.len != 1) {
-            self.reportError(&ast.location, "Wrong number of arguments for @then(): expected exactly one argument but found {}", .{call.args.items.len});
+        const condition = call.args.items[0];
+
+        // compile and check condition
+        try self.compileAst(condition, .{});
+        if (self.wasError(ast, condition)) {
+            return;
+        }
+
+        if (!condition.typ.is(.Bool)) {
+            self.reportError(&ast.location, "Condition for @then() is not a bool but '{}'", .{condition.typ});
             ast.typ = try self.typeRegistry.getErrorType();
             return;
         }
 
         // compile body
-        try self.compileAst(call.args.items[0], .{});
-        if (self.wasError(ast, call.args.items[0])) {
+        try self.compileAst(call.args.items[1], .{});
+        if (self.wasError(ast, call.args.items[1])) {
             return;
         }
-
-        // Add injected expression as last argument so we have a pointer for running this ast.
-        try call.args.append(ctx.injected.?);
 
         ast.typ = try self.typeRegistry.getVoidType();
     }

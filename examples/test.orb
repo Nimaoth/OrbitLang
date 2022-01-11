@@ -1,7 +1,15 @@
-foo(false, true)
 
 foo :: @fn((a: bool, b: bool) -> bool) {
     @print(a, b)
     a -> @then() @print(69)
     b -> @then() @print(420)
+    @then(b) @print(420)
+    @then(b, @print(420))
 }
+
+uiae :: 123
+@print(uiae)
+foo(true, false)
+bar(true, false)
+@print(__add(5, 10))
+
